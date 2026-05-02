@@ -49,6 +49,15 @@ fi
 # --- Tell the plugin (and standalone bot below) where to put state ---
 export TELEGRAM_STATE_DIR="$STATE_DIR"
 
+# --- Ensure Claude Code is installed and on PATH ---
+if ! command -v claude >/dev/null 2>&1; then
+  echo "ERROR: 'claude' not found on PATH." >&2
+  echo "  Install Claude Code: https://docs.anthropic.com/claude-code" >&2
+  echo "  Then sign in with:   claude login" >&2
+  echo "  (claudeclaw needs a Claude.ai login — Pro / Max / Team — to use channels.)" >&2
+  exit 1
+fi
+
 # --- Ensure plugin dependencies are installed ---
 if [ ! -d "$PLUGIN_DIR/node_modules" ]; then
   echo "First run — installing telegram plugin dependencies..."
