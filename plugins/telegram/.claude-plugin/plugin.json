@@ -1,0 +1,15 @@
+{
+  "name": "telegram",
+  "description": "Telegram channel for Claude Code — claudeclaw fork. Messaging bridge with built-in access control, MarkdownV2 reply formatting, tool-call streaming. Forked from telegram@claude-plugins-official.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Lalit"
+  },
+  "keywords": [
+    "telegram",
+    "messaging",
+    "channel",
+    "mcp",
+    "claudeclaw"
+  ]
+}

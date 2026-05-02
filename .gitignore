@@ -1,0 +1,57 @@
+# STRICT ALLOWLIST: ignore everything by default; only the paths explicitly
+# un-ignored below are tracked. Add new tracked paths here.
+#
+# Rules:
+#   * "!" un-ignores. Both the parent dirs and the file/glob need to be unignored.
+#   * Subdirs of an unignored dir are NOT auto-included — list "!dir/" then "!dir/**".
+#   * For nested paths, un-ignore each level: "!a/", "!a/b/", "!a/b/c"
+#
+# Verify with: git status (untracked files mean you need to add them here).
+
+# --- Ignore everything ---
+*
+
+# --- Allow git's own metadata ---
+!.gitignore
+
+# --- Top-level files ---
+!CLAUDE.md
+!LICENSE
+!README.md
+!start.sh
+!.env.example
+
+# --- Claude Code config ---
+!.claude/
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+!.claude/hooks/**
+
+# --- Plugin marketplace manifest ---
+!.claude-plugin/
+!.claude-plugin/**
+
+# --- Forked Telegram plugin ---
+!plugins/
+plugins/*
+!plugins/telegram/
+plugins/telegram/*
+!plugins/telegram/.claude-plugin/
+!plugins/telegram/.claude-plugin/**
+!plugins/telegram/.mcp.json
+!plugins/telegram/.npmrc
+!plugins/telegram/ACCESS.md
+!plugins/telegram/LICENSE
+!plugins/telegram/NOTICE
+!plugins/telegram/README.md
+!plugins/telegram/package-lock.json
+!plugins/telegram/package.json
+!plugins/telegram/server.ts
+!plugins/telegram/tsconfig.json
+!plugins/telegram/skills/
+!plugins/telegram/skills/**
+
+# --- Profile templates ---
+!templates/
+!templates/**

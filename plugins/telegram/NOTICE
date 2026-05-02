@@ -1,0 +1,15 @@
+telegram-claudeclaw
+Copyright 2026 Lalit (claudeclaw)
+
+This product is a fork of the Telegram channel plugin for Claude Code:
+  https://github.com/anthropic-experimental/claude-plugins-official/tree/main/external_plugins/telegram
+
+The original work is:
+  Copyright the Anthropic-Experimental contributors
+  Licensed under the Apache License, Version 2.0
+
+Original plugin name: telegram (claude-plugins-official)
+Forked at version: 0.0.6
+
+Modifications made in this fork are documented in CHANGELOG.md (or git history).
+The Apache 2.0 license terms apply to both the original and modified portions.

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "claudeclaw",
+  "description": "Claudeclaw plugin marketplace — opinionated tools for the claudeclaw heartbeat workspace.",
+  "owner": {
+    "name": "Lalit"
+  },
+  "plugins": [
+    {
+      "name": "telegram",
+      "source": "./plugins/telegram",
+      "description": "Telegram channel for Claude Code — claudeclaw fork. Adds MarkdownV2 reply formatting and tool-call streaming to the official Telegram channel plugin."
+    }
+  ]
+}

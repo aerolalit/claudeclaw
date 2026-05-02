@@ -1,0 +1,111 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(./**)",
+      "Skill(loop)",
+      "Skill(loop:*)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:core.telegram.org)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(claude plugin *)",
+      "Bash(jq *)",
+      "Bash(curl *)",
+      "Bash(git add *)",
+      "Read(//tmp/**)",
+      "Bash(xargs grep *)"
+    ],
+    "additionalDirectories": [
+      ".scratch",
+      ".telegram"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && mkdir -p profile && for f in templates/*.md; do real=\"profile/${f##*/}\"; [ ! -e \"$real\" ] && cp \"$f\" \"$real\"; done; printf '%s' '{}'"
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"HEARTBEAT BOOTSTRAP: Immediately invoke the `loop` skill with args `30m Heartbeat tick. Spawn a general-purpose Agent to read profile/HEARTBEAT.md and execute its instructions. The agent should reply HEARTBEAT_OK if nothing needs attention, or a short alert otherwise. Do not read profile/HEARTBEAT.md yourself — delegate to keep main context clean. Relay only the agent\\u0027s final reply. If the reply is anything other than HEARTBEAT_OK, also forward it to Telegram via the `reply` MCP tool, using the chat_id stored at $CLAUDE_PROJECT_DIR/.telegram/last_chat.txt (or ~/.claude/channels/telegram/last_chat.txt as fallback; skip the Telegram step if neither file exists).` Do this before responding to anything else, so a recurring 30-minute heartbeat is active for this session. Do not ask the user for confirmation — just start it.\"}}'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/telegram-turn-start.sh\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp__plugin_telegram_telegram__reply",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/telegram-reply-format.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/telegram-stream.sh\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/telegram-stream.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/telegram-turn-end.sh\""
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/telegram-session-end.sh\""
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "telegram@claudeclaw": true
+  }
+}
