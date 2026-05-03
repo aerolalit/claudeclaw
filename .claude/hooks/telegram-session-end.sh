@@ -62,4 +62,16 @@ if [ -f "$PID_FILE" ]; then
   fi
 fi
 
+# --- Final vault digest pass ---
+# Stop hook usually catches everything; this is the safety net for sessions
+# that ended without a final Stop firing (manual exit, crash recovery).
+HOOK_INPUT=$(cat 2>/dev/null || true)
+export HOOK_INPUT
+DIGEST_LIB="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/hooks/lib/digest.sh"
+if [ -f "$DIGEST_LIB" ]; then
+  # shellcheck source=lib/digest.sh
+  . "$DIGEST_LIB"
+  digest_run "session-end" || true
+fi
+
 exit 0

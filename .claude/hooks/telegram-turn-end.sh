@@ -50,4 +50,17 @@ fi
 TMP=$(mktemp)
 jq '.in_telegram_turn = false' "$STATE_FILE" > "$TMP" && mv "$TMP" "$STATE_FILE"
 
+# --- Vault digest (fire-and-forget) ---
+# Spawn a sub-agent to capture durable facts from this turn into the vault.
+# Bookmark-driven: skips if no new content, capped to avoid runaway cost.
+# Failures log to .telegram/digest.log; never block this hook.
+HOOK_INPUT=$(cat 2>/dev/null || true)
+export HOOK_INPUT
+DIGEST_LIB="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/hooks/lib/digest.sh"
+if [ -f "$DIGEST_LIB" ]; then
+  # shellcheck source=lib/digest.sh
+  . "$DIGEST_LIB"
+  digest_run "stop" || true
+fi
+
 exit 0
