@@ -13,11 +13,8 @@
       "Bash(claude plugin *)",
       "Bash(jq *)",
       "Bash(curl *)",
-      "Bash(git add *)",
-      "Read(//tmp/**)",
-      "Bash(git commit -m ' *)",
-      "Bash(ssh lalit@openclaw.local 'bash -lc \"claudeclaw help\" 2>&1 | head -20; echo \"---\"; bash -lc \"claudeclaw version\" 2>&1 | head -5; echo \"---\"; bash -lc \"claudeclaw status\" 2>&1 | head -25; echo \"---\"; bash -lc \"claudeclaw doctor\" 2>&1 | tail -25')",
-      "Bash(git tag -a v0.1.0 -m ' *)"
+      "Bash(./bin/vault *)",
+      "Bash(./bin/vault)"
     ],
     "additionalDirectories": [
       ".scratch",

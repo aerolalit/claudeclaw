@@ -73,6 +73,32 @@ After adding, briefly tell the user what you added and that the next heartbeat t
 - Tasks needing the main session's context — heartbeat agents run isolated.
 - Anything sensitive (secrets, tokens) — `HEARTBEAT.md` is read every tick.
 
+## Vault memory
+
+Persistent notes / daily journal / wiki live under `$CLAUDE_PROJECT_DIR/vault/` (or wherever `VAULT_PATH` points if the user has overridden it). Use `bin/vault` for memory operations rather than reading/writing markdown files directly:
+
+```bash
+bin/vault search <query>       # keyword search across the vault (BM25 via ripgrep)
+bin/vault read <path>          # print a note
+bin/vault write <path>         # write stdin to a note (creates parents)
+bin/vault daily [today|date]   # open / create today's daily note (returns path)
+bin/vault daily-append "<line>" # append to today's daily note
+bin/vault backlinks <name>     # files containing [[name]]
+bin/vault index                # regenerate vault/index.md (Karpathy-style catalog)
+bin/vault ls [subdir]          # list .md files
+```
+
+When to reach for the vault:
+
+- **User asks "what did I do yesterday/last week"** → read recent `daily-notes/*.md` via `bin/vault read` or `bin/vault search`.
+- **User mentions a person/concept/project that might already have a wiki page** → `bin/vault search <name>` then read the matching file.
+- **User asks you to remember something stable** (a decision, a contact, a project status) — write a wiki page or append to a daily note. Don't keep that knowledge in chat; write it down.
+- **End-of-day briefing, weekly review, "catch me up" prompts** → start with `bin/vault read index.md` to see what's in the vault, then dig into specifics.
+
+Vault structure is whatever the user has set up (claudeclaw doesn't impose one). Common shapes: `daily-notes/YYYY-MM-DD.md`, `wiki/people/<name>.md`, `wiki/projects/<slug>.md`, `wiki/concepts/<slug>.md`. If `vault/` is empty, create the first note where it logically belongs and let the structure grow organically.
+
+The vault is gitignored (it's the user's per-instance memory, not framework code) but lives inside the repo so `bin/vault` finds it automatically.
+
 ## When responding to Telegram messages
 
 If the user message is a `<channel source="telegram" ...>` tag, the streaming UX is handled automatically by hooks. The `UserPromptSubmit` hook reacts 👀 and primes `.telegram/active.json`. The `PreToolUse`/`PostToolUse` hooks lazily create a progress message on the first non-Telegram tool call and edit-stream subsequent tools into it. The `Stop` hook deletes the progress message at turn end. You don't need to write `active.json` yourself.

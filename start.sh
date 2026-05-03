@@ -93,6 +93,11 @@ PAIRING_TIMEOUT=180  # seconds to wait for user to DM the bot
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR" 2>/dev/null || true
 
+# Scaffold the vault dir so bin/vault has somewhere to write on first use.
+# User's per-instance memory; gitignored. Honours VAULT_PATH override too.
+VAULT_DIR="${VAULT_PATH:-$REPO_ROOT/vault}"
+mkdir -p "$VAULT_DIR/daily-notes" "$VAULT_DIR/wiki" 2>/dev/null || true
+
 LOG_FILE="$STATE_DIR/stream.log"
 
 # ────────────────────────────────────────────────────────────────────
