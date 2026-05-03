@@ -41,6 +41,7 @@ try {
 } catch {}
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN
+const GROQ_API_KEY = process.env.GROQ_API_KEY
 const STATIC = process.env.TELEGRAM_ACCESS_MODE === 'static'
 
 if (!TOKEN) {
@@ -1080,9 +1081,41 @@ bot.on('message:document', async ctx => {
   })
 })
 
+async function transcribeGroq(file_id: string, mime: string): Promise<string | null> {
+  if (!GROQ_API_KEY) return null
+  try {
+    const file = await bot.api.getFile(file_id)
+    if (!file.file_path) return null
+    const audioRes = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${file.file_path}`)
+    if (!audioRes.ok) return null
+    const buf = Buffer.from(await audioRes.arrayBuffer())
+    let ext = file.file_path.includes('.') ? file.file_path.split('.').pop()!.replace(/[^a-z0-9]/gi, '') : 'ogg'
+    // Telegram serves voice notes as .oga; Groq's whitelist accepts .ogg.
+    if (ext === 'oga') ext = 'ogg'
+    const form = new FormData()
+    form.append('file', new Blob([buf], { type: mime }), `audio.${ext}`)
+    form.append('model', 'whisper-large-v3-turbo')
+    const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
+      body: form,
+    })
+    if (!res.ok) {
+      process.stderr.write(`transcribeGroq: Groq API error ${res.status}\n`)
+      return null
+    }
+    const json = await res.json() as { text?: string }
+    return json.text?.trim() || null
+  } catch (err) {
+    process.stderr.write(`transcribeGroq: ${err}\n`)
+    return null
+  }
+}
+
 bot.on('message:voice', async ctx => {
   const voice = ctx.message.voice
-  const text = ctx.message.caption ?? '(voice message)'
+  const transcript = await transcribeGroq(voice.file_id, voice.mime_type ?? 'audio/ogg')
+  const text = transcript ?? ctx.message.caption ?? '(voice message — transcription unavailable)'
   await handleInbound(ctx, text, undefined, {
     kind: 'voice',
     file_id: voice.file_id,
@@ -1094,7 +1127,8 @@ bot.on('message:voice', async ctx => {
 bot.on('message:audio', async ctx => {
   const audio = ctx.message.audio
   const name = safeName(audio.file_name)
-  const text = ctx.message.caption ?? `(audio: ${safeName(audio.title) ?? name ?? 'audio'})`
+  const transcript = await transcribeGroq(audio.file_id, audio.mime_type ?? 'audio/mpeg')
+  const text = transcript ?? ctx.message.caption ?? `(audio: ${safeName(audio.title) ?? name ?? 'audio'} — transcription unavailable)`
   await handleInbound(ctx, text, undefined, {
     kind: 'audio',
     file_id: audio.file_id,
