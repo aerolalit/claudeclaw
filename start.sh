@@ -79,11 +79,19 @@ if ! command -v claude >/dev/null 2>&1; then
 fi
 
 # --- Ensure Claude Code is authenticated ---
-# Heuristic: env var OR ~/.claude.json has an oauthAccount block.
+# Three valid auth states:
+#   1. CLAUDE_CODE_OAUTH_TOKEN env var (headless setup-token flow).
+#   2. ~/.claude/.credentials.json exists AND ~/.claude.json marks onboarding done.
+# Note: presence of `oauthAccount` in .claude.json is NOT sufficient — that's
+# just profile metadata; the actual token lives in .credentials.json, and
+# interactive `claude` blocks on the onboarding wizard if hasCompletedOnboarding
+# is not true.
 authed=false
 if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
   authed=true
-elif [ -f "$HOME/.claude.json" ] && grep -q '"oauthAccount"' "$HOME/.claude.json" 2>/dev/null; then
+elif [ -s "$HOME/.claude/.credentials.json" ] && \
+     [ -f "$HOME/.claude.json" ] && \
+     grep -q '"hasCompletedOnboarding"[[:space:]]*:[[:space:]]*true' "$HOME/.claude.json" 2>/dev/null; then
   authed=true
 fi
 
@@ -105,7 +113,11 @@ Claude Code is installed but not authenticated.
   2. Back on THIS machine, add the token to claudeclaw's .env:
        echo 'CLAUDE_CODE_OAUTH_TOKEN=<paste-token-here>' >> .env
 
-  3. Re-run ./start.sh
+  3. Mark Claude Code's onboarding done so interactive mode won't block:
+       mkdir -p ~/.claude
+       echo '{"hasCompletedOnboarding":true}' > ~/.claude.json
+
+  4. Re-run ./start.sh
 
 EOF
   exit 1
