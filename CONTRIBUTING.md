@@ -88,6 +88,35 @@ readlink loop.
 
 Skip the boilerplate "this commit", "I added", etc. Co-author trailers for tools that helped are fine.
 
+## Releasing (maintainer notes)
+
+Releases are tagged with both a versioned tag (`vN.M.P`) and the rolling `latest` tag pointing at the same commit. The README install URL uses `latest`, so users always get the most recent release without README edits.
+
+Flow for a new release:
+
+```bash
+# 1. Update CHANGELOG.md — move [Unreleased] entries into a new [vN.M.P] section.
+$EDITOR CHANGELOG.md
+git add CHANGELOG.md
+git commit -m "Release vN.M.P"
+
+# 2. Create the version tag (annotated, immutable).
+git tag -a vN.M.P -m "claudeclaw vN.M.P"
+
+# 3. Move the rolling 'latest' tag to the same commit.
+git tag -d latest
+git tag -a latest -m "claudeclaw — rolling tag, points at the most recent release. Currently: vN.M.P."
+
+# 4. Push everything.
+git push origin main
+git push origin vN.M.P
+git push --force origin latest
+
+# 5. (Optional) Create a GitHub Release on top of the version tag with copy-pasted CHANGELOG notes.
+```
+
+Don't move version tags after they're public. Move only `latest`.
+
 ## Reporting issues
 
 `claudeclaw doctor`, `claudeclaw version`, last 30 lines of `claudeclaw logs`, what you ran, what happened. Without those, an issue is unactionable.
