@@ -53,10 +53,41 @@ ENV_FILE="$REPO_ROOT/.env"
 # Picked up by the plugin via TELEGRAM_STATE_DIR (see server.ts).
 STATE_DIR="$REPO_ROOT/.telegram"
 ACCESS_FILE="$STATE_DIR/access.json"
+TMUX_SESSION="claudeclaw"
 PAIRING_TIMEOUT=180  # seconds to wait for user to DM the bot
 
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR" 2>/dev/null || true
+
+# --- If a claudeclaw tmux session is already running, offer to reattach ---
+# Skip this check if we're already inside tmux (the script may be re-execing
+# itself from the tmux-wrap branch below).
+if [ -z "${TMUX:-}" ] && command -v tmux >/dev/null 2>&1 && \
+   tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+  cat <<EOF
+
+A claudeclaw tmux session is already running.
+
+  [1] Reattach (default)             — connect to the running Claude session
+  [2] Kill it and start fresh        — tear down and re-run setup
+  [3] Cancel                         — exit without doing anything
+
+EOF
+  read -r -p "Choice [1/2/3] (default 1): " session_choice
+  case "${session_choice:-1}" in
+    2|k|K|kill)
+      tmux kill-session -t "$TMUX_SESSION"
+      echo "✔ killed session '$TMUX_SESSION' — continuing with fresh setup..."
+      ;;
+    3|c|C|cancel|n|N)
+      echo "Cancelled."
+      exit 0
+      ;;
+    *)
+      exec tmux attach -t "$TMUX_SESSION"
+      ;;
+  esac
+fi
 
 # --- Parse flags ---
 NO_TG=false
@@ -352,9 +383,10 @@ if [ "$needs_pairing" = true ]; then
 fi
 
 # --- Optional: wrap launch in tmux so it survives terminal close ---
-# Skip if we're already inside a tmux session (this is a re-launch from the
-# wrapper itself, or the user runs from inside their own tmux).
-TMUX_SESSION="claudeclaw"
+# Skip if we're already inside a tmux session (this is the re-exec from the
+# wrapper below, or the user runs from inside their own tmux).
+# (Existing-session collision is handled at script entry — we'd have either
+#  reattached or killed it before reaching here.)
 if [ -z "${TMUX:-}" ]; then
   cat <<'EOF'
 
@@ -369,18 +401,6 @@ EOF
   read -r -p "Choice [1/2] (default 1): " tmux_choice
   case "${tmux_choice:-1}" in
     1|y|Y|yes)
-      # Refuse if a session already exists — tell them how to reconnect or kill.
-      if command -v tmux >/dev/null 2>&1 && tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
-        cat >&2 <<EOF
-
-ERROR: a tmux session named "$TMUX_SESSION" is already running.
-
-  Reconnect to it:        tmux attach -t $TMUX_SESSION
-  Kill it and start over: tmux kill-session -t $TMUX_SESSION
-
-EOF
-        exit 1
-      fi
       # Install tmux if missing.
       if ! command -v tmux >/dev/null 2>&1; then
         echo "tmux not installed — installing..."
