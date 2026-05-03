@@ -102,5 +102,16 @@ echo "→ launching ./start.sh..."
 echo
 
 # Hand off. exec replaces this shell so start.sh owns the terminal.
+# When this script is run via `curl ... | bash`, stdin is the curl pipe (now
+# closed). Re-attach stdin to the controlling TTY so start.sh's interactive
+# prompts work. /dev/tty is the standard POSIX way to address the user's
+# real terminal, regardless of how stdin was redirected.
 cd "$INSTALL_DIR"
+if [ -e /dev/tty ]; then
+  exec </dev/tty
+else
+  echo "ERROR: no controlling TTY available — can't run interactive setup." >&2
+  echo "  Try: cd $INSTALL_DIR && ./start.sh" >&2
+  exit 1
+fi
 exec ./start.sh
