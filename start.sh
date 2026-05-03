@@ -50,7 +50,19 @@ for bin_dir in "$HOME/.local/bin" "$HOME/bin" "$HOME/.npm-global/bin"; do
 done
 export PATH
 
-REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+# Resolve $0 through any symlinks (e.g. ~/.local/bin/claudeclaw -> the real
+# script in the cloned repo) so REPO_ROOT points at the actual repo, not the
+# symlink dir. POSIX-portable readlink-loop — works on macOS (BSD readlink
+# without -f) and Linux alike.
+self="$0"
+while [ -L "$self" ]; do
+  link_target="$(readlink "$self")"
+  case "$link_target" in
+    /*) self="$link_target" ;;
+    *)  self="$(cd "$(dirname "$self")" && pwd)/$link_target" ;;
+  esac
+done
+REPO_ROOT="$(cd "$(dirname "$self")" && pwd)"
 PLUGIN_DIR="$REPO_ROOT/plugins/telegram"
 MARKETPLACE_NAME="claudeclaw"
 PLUGIN_REF="telegram@${MARKETPLACE_NAME}"
