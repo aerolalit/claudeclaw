@@ -75,10 +75,40 @@ if ! command -v claude >/dev/null 2>&1; then
     exit 1
   fi
   echo
-  echo "Claude Code installed. Sign in now:"
-  echo "  claude login"
-  echo "Then re-run ./start.sh."
-  exit 0
+  echo "Claude Code installed. Now authenticate (see instructions below)."
+fi
+
+# --- Ensure Claude Code is authenticated ---
+# Heuristic: env var OR ~/.claude.json has an oauthAccount block.
+authed=false
+if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+  authed=true
+elif [ -f "$HOME/.claude.json" ] && grep -q '"oauthAccount"' "$HOME/.claude.json" 2>/dev/null; then
+  authed=true
+fi
+
+if [ "$authed" != "true" ]; then
+  cat >&2 <<'EOF'
+
+Claude Code is installed but not authenticated.
+
+  ─── If THIS machine has a browser (Mac, desktop Linux): ───
+  Run:  claude login
+  Then re-run ./start.sh
+
+  ─── If THIS machine is headless (server, Raspberry Pi, VPS): ───
+  1. On a different machine WITH a browser, run:
+       claude setup-token
+     Sign in to claude.ai when prompted. Copy the token it prints.
+     (Requires a Claude Pro / Max / Team subscription.)
+
+  2. Back on THIS machine, add the token to claudeclaw's .env:
+       echo 'CLAUDE_CODE_OAUTH_TOKEN=<paste-token-here>' >> .env
+
+  3. Re-run ./start.sh
+
+EOF
+  exit 1
 fi
 
 # --- Ensure plugin dependencies are installed ---
