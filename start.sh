@@ -280,16 +280,17 @@ cmd_uninstall() {
 # Dispatcher
 # ────────────────────────────────────────────────────────────────────
 
+# NOTE: `shift` under `set -u` errors when $# is 0. Guard each shift with $#>0.
 case "${1:-start}" in
-  start)            shift; ;;  # fall through to the main flow below
+  start)            [ $# -gt 0 ] && shift; ;;  # fall through to the main flow below
   stop)             cmd_stop;     exit $? ;;
-  restart)          shift; cmd_restart "$@"; exit $? ;;
+  restart)          [ $# -gt 0 ] && shift; cmd_restart "$@"; exit $? ;;
   status)           cmd_status;   exit $? ;;
   attach)           cmd_attach;   exit $? ;;
-  logs)             shift; cmd_logs "$@"; exit $? ;;
+  logs)             [ $# -gt 0 ] && shift; cmd_logs "$@"; exit $? ;;
   update)           cmd_update;   exit $? ;;
   doctor)           cmd_doctor;   exit $? ;;
-  uninstall)        shift; cmd_uninstall "$@"; exit $? ;;
+  uninstall)        [ $# -gt 0 ] && shift; cmd_uninstall "$@"; exit $? ;;
   version|--version|-v) cmd_version; exit 0 ;;
   help|--help|-h)   cmd_help;     exit 0 ;;
   --no-tg)          ;;  # known flag for `start` — no-op here, parsed below
