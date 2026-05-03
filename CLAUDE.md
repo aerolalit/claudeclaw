@@ -95,9 +95,25 @@ When to reach for the vault:
 - **User asks you to remember something stable** (a decision, a contact, a project status) — write a wiki page or append to a daily note. Don't keep that knowledge in chat; write it down.
 - **End-of-day briefing, weekly review, "catch me up" prompts** → start with `bin/vault read index.md` to see what's in the vault, then dig into specifics.
 
-Vault structure is whatever the user has set up (claudeclaw doesn't impose one). Common shapes: `daily-notes/YYYY-MM-DD.md`, `wiki/people/<name>.md`, `wiki/projects/<slug>.md`, `wiki/concepts/<slug>.md`. If `vault/` is empty, create the first note where it logically belongs and let the structure grow organically.
+Vault structure follows Karpathy's llm-wiki layout: `daily-notes/YYYY-MM-DD.md`, `wiki/people/<slug>.md`, `wiki/projects/<slug>.md`, `wiki/concepts/<slug>.md`, `wiki/entities/<slug>.md`, plus `raw/` for source clippings and `log.md` (append-only audit trail of what's been captured). Slugs are kebab-case lowercase; wikilinks `[[name]]` reference other pages. Run `bin/vault scaffold` if directories don't exist yet (start.sh does this automatically).
 
-The vault is gitignored (it's the user's per-instance memory, not framework code) but lives inside the repo so `bin/vault` finds it automatically.
+The vault is gitignored (per-instance memory) but lives inside the repo so `bin/vault` finds it automatically.
+
+### Reading from the vault before answering
+
+When the user mentions a name, concept, project, or asks "what did I…" / "remind me about…" / "what's the status of…":
+
+1. **Check `bin/vault search <term>`** for relevant pages.
+2. If hits look relevant, **read them** before answering. Spend the first turn-action getting context, not improvising.
+3. **Don't dump everything every turn** — only when relevant. Most messages don't need a vault lookup.
+
+A useful first move on ambiguous "catch me up"-style prompts: `bin/vault read index.md` for the catalog, then drill into specific pages.
+
+### Auto-capture (you don't need to do this manually)
+
+Hooks run a digest sub-agent at end of every turn (Stop), before context compaction (PreCompact), and at session end. They extract durable facts (people, projects, decisions, concepts) and write them to the vault automatically. So you don't need to do "let me write that down" mid-reply — the digest agent handles it after.
+
+If you do want to capture something explicitly, use `bin/vault write` or `bin/vault daily-append`. Always log it: `bin/vault log "[manual] saved wiki/<path>: <summary>"`.
 
 ## When responding to Telegram messages
 
