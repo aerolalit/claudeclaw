@@ -62,6 +62,18 @@ case "$TOOL" in
   mcp__plugin_telegram_telegram__*) exit 0 ;;
 esac
 
+# Skip the heartbeat-arming chain on session start. The agent runs:
+#   Skill(loop) → ToolSearch(CronCreate) → CronCreate → ...
+# That's plumbing for arming the recurring heartbeat — not user-facing work.
+# Filter the noise out of the Telegram tool-call stream.
+if [ "$TOOL" = "Skill" ]; then
+  SKILL_NAME=$(echo "$INPUT" | jq -r '.tool_input.skill // empty')
+  [ "$SKILL_NAME" = "loop" ] && exit 0
+fi
+case "$TOOL" in
+  CronCreate|CronList|CronDelete|ToolSearch) exit 0 ;;
+esac
+
 # --- Per-tool emoji + brief input formatter ---
 emoji_for() {
   case "$1" in

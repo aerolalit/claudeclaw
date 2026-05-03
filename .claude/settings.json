@@ -15,7 +15,9 @@
       "Bash(curl *)",
       "Bash(git add *)",
       "Read(//tmp/**)",
-      "Bash(xargs grep *)"
+      "Bash(git commit -m ' *)",
+      "Bash(ssh lalit@openclaw.local 'bash -lc \"claudeclaw help\" 2>&1 | head -20; echo \"---\"; bash -lc \"claudeclaw version\" 2>&1 | head -5; echo \"---\"; bash -lc \"claudeclaw status\" 2>&1 | head -25; echo \"---\"; bash -lc \"claudeclaw doctor\" 2>&1 | tail -25')",
+      "Bash(git tag -a v0.1.0 -m ' *)"
     ],
     "additionalDirectories": [
       ".scratch",
@@ -38,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"HEARTBEAT BOOTSTRAP: Immediately invoke the `loop` skill with args `30m Heartbeat tick. Spawn a general-purpose Agent to read profile/HEARTBEAT.md and execute its instructions. The agent should reply HEARTBEAT_OK if nothing needs attention, or a short alert otherwise. Do not read profile/HEARTBEAT.md yourself — delegate to keep main context clean. Relay only the agent\\u0027s final reply. If the reply is anything other than HEARTBEAT_OK, also forward it to Telegram via the `reply` MCP tool, using the chat_id stored at $CLAUDE_PROJECT_DIR/.telegram/last_chat.txt (or ~/.claude/channels/telegram/last_chat.txt as fallback; skip the Telegram step if neither file exists).` Do this before responding to anything else, so a recurring 30-minute heartbeat is active for this session. Do not ask the user for confirmation — just start it.\"}}'"
+            "command": "printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"HEARTBEAT BOOTSTRAP: Immediately invoke the `loop` skill with args `30m Heartbeat tick. Spawn a general-purpose Agent to read profile/HEARTBEAT.md and execute its instructions. The agent should reply HEARTBEAT_OK if nothing needs attention, or a short alert otherwise. Do not read profile/HEARTBEAT.md yourself — delegate to keep main context clean. Relay only the agent\\u0027s final reply. If the reply is anything other than HEARTBEAT_OK, also forward it to Telegram via the `reply` MCP tool, using the chat_id stored at $CLAUDE_PROJECT_DIR/.telegram/last_chat.txt (or ~/.claude/channels/telegram/last_chat.txt as fallback; skip the Telegram step if neither file exists).` Arm this AFTER finishing your normal reply to the user — answer them first, then call the `loop` skill at the very end of your turn so the recurring 30-minute heartbeat is active for this session. Do not ask the user for confirmation — just start it. Do this only once per session; if a heartbeat job is already running (CronList shows one), skip.\"}}'"
           }
         ]
       }
