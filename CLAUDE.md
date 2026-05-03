@@ -64,6 +64,21 @@ Heartbeat ticks are NOT Telegram messages — they fire from the cron loop. The 
 
 The active cron job ID is shown when the loop is armed; ask to "stop the heartbeat" or "show heartbeat status" to manage it.
 
+## Asking the user questions
+
+When the current turn was triggered by a Telegram message (`<channel source="telegram" ...>`) and you need user input, **prefer the Telegram `ask` tool over the built-in `AskUserQuestion`**. The user is on their phone, not at the terminal — `AskUserQuestion` blocks on a UI they can't see.
+
+The `ask` tool returns immediately with an `ask_id` and ends the agent's wait. The user's reply (button tap or quote-reply) arrives later as a `<channel source="telegram" ...>` notification carrying the same `ask_id` plus `ask_answer_kind` (`option` | `text` | `timeout`). When you receive it, treat it as the answer to the original question and continue the work.
+
+Guidelines:
+
+- **Provide options** when there's a small fixed set of choices ("yes/no", "merge or rebase", "deploy A/B/C") — they render as inline buttons.
+- **Omit options** for open-ended questions ("what should the commit message be?") — the user replies with free text.
+- **End your turn after calling `ask`.** Don't busy-wait. The next inbound notification wakes you.
+- **Default timeout is 1h.** If you don't get an answer, the channel notification arrives with `ask_answer_kind: timeout` and empty content — abandon or ask again.
+- **Don't use `ask` for terminal-only sessions** (no active Telegram chat). Fall back to `AskUserQuestion` there.
+- **Don't use `ask` from heartbeat sub-agents.** They run isolated and won't see the answer. If a heartbeat needs user input, surface the question via the main session.
+
 ## File map (quick reference)
 
 | File | Purpose | Tracked? | Loaded how |
