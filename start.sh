@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
-# start.sh — bootstrap and launch the Telegram-channel session.
+# start.sh / claudeclaw — bootstrap and run the Telegram-channel session.
 #
-# Usage:
-#   ./start.sh                # interactive setup + foreground run
-#   ./start.sh --no-tg        # plain interactive, no channel
+# Subcommands:
+#   claudeclaw [start]        # default. Setup + launch (or attach if running).
+#   claudeclaw stop           # kill the tmux session.
+#   claudeclaw restart        # stop + start.
+#   claudeclaw status         # show running state, PID, last heartbeat.
+#   claudeclaw attach         # tmux attach to the running session.
+#   claudeclaw logs [-f]      # tail .telegram/stream.log.
+#   claudeclaw update         # git pull + reinstall plugin if changed.
+#   claudeclaw doctor         # diagnostic: deps, auth, tokens, network.
+#   claudeclaw uninstall      # remove the ~/.local/bin/claudeclaw symlink.
+#   claudeclaw uninstall --purge  # also delete the cloned repo.
+#   claudeclaw version        # print version.
+#   claudeclaw help           # this help.
+#
+# Flags (apply to start):
+#   --no-tg                   # launch without Telegram channel (terminal only).
 #
 # First run does (all foreground, interactive):
 #   1. Install Claude Code (if missing) via the official installer.
@@ -77,6 +90,216 @@ PAIRING_TIMEOUT=180  # seconds to wait for user to DM the bot
 
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR" 2>/dev/null || true
+
+LOG_FILE="$STATE_DIR/stream.log"
+
+# ────────────────────────────────────────────────────────────────────
+# Subcommand functions
+# ────────────────────────────────────────────────────────────────────
+
+cmd_help() {
+  sed -n '/^# start\.sh/,/^$/p' "$self" | sed 's/^# \?//'
+}
+
+cmd_version() {
+  local v="(unknown)"
+  if [ -d "$REPO_ROOT/.git" ]; then
+    v=$(cd "$REPO_ROOT" && git describe --tags --always --dirty 2>/dev/null || echo "(no tags)")
+  fi
+  echo "claudeclaw $v"
+  echo "  repo: $REPO_ROOT"
+  command -v claude >/dev/null 2>&1 && claude --version 2>/dev/null | head -1 | sed 's/^/  /' || true
+}
+
+cmd_attach() {
+  if ! command -v tmux >/dev/null 2>&1; then
+    echo "ERROR: tmux not installed." >&2; exit 1
+  fi
+  if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+    echo "Not running. Start with: claudeclaw start" >&2; exit 1
+  fi
+  exec tmux attach -t "$TMUX_SESSION"
+}
+
+cmd_status() {
+  echo "claudeclaw"
+  echo "  repo:  $REPO_ROOT"
+  echo "  state: $STATE_DIR"
+  echo
+  if command -v tmux >/dev/null 2>&1 && tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+    echo "  tmux session: ✓ running ($TMUX_SESSION)"
+    echo "  attach with:  claudeclaw attach"
+  else
+    echo "  tmux session: ✗ not running"
+    echo "  start with:   claudeclaw start"
+  fi
+  echo
+  if [ -s "$LOG_FILE" ]; then
+    echo "  last log line: $(tail -1 "$LOG_FILE")"
+  else
+    echo "  no log activity yet"
+  fi
+  echo
+  if [ -f "$ENV_FILE" ] && grep -q '^TELEGRAM_BOT_TOKEN=' "$ENV_FILE"; then
+    echo "  bot token: ✓ set"
+  else
+    echo "  bot token: ✗ missing (.env)"
+  fi
+  if [ -f "$ACCESS_FILE" ] && command -v jq >/dev/null 2>&1; then
+    local n
+    n=$(jq -r '.allowFrom // [] | length' "$ACCESS_FILE" 2>/dev/null || echo 0)
+    if [ "$n" -gt 0 ]; then
+      echo "  paired:    ✓ $n sender(s) on allowlist"
+    else
+      echo "  paired:    ✗ no allowlist entries"
+    fi
+  fi
+}
+
+cmd_stop() {
+  if ! command -v tmux >/dev/null 2>&1 || ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+    echo "Not running."
+    return 0
+  fi
+  tmux kill-session -t "$TMUX_SESSION"
+  echo "✔ stopped (killed tmux session: $TMUX_SESSION)"
+}
+
+cmd_restart() {
+  cmd_stop
+  exec "$self" start "$@"
+}
+
+cmd_logs() {
+  [ ! -f "$LOG_FILE" ] && { echo "No log file yet at $LOG_FILE"; exit 0; }
+  case "${1:-}" in
+    -f|--follow) tail -f "$LOG_FILE" ;;
+    *)           tail -50 "$LOG_FILE" ;;
+  esac
+}
+
+cmd_update() {
+  cd "$REPO_ROOT"
+  if [ ! -d .git ]; then
+    echo "ERROR: $REPO_ROOT is not a git checkout. Reinstall: ${0##*/}" >&2
+    exit 1
+  fi
+  echo "→ pulling latest..."
+  git pull --ff-only
+  echo
+  echo "→ updating npm deps if package.json changed..."
+  if [ -f "$PLUGIN_DIR/package.json" ] && [ -d "$PLUGIN_DIR/node_modules" ]; then
+    (cd "$PLUGIN_DIR" && npm install --silent --no-audit --no-fund) || true
+  fi
+  echo
+  echo "→ reinstalling Claude Code plugin so server.ts changes take effect..."
+  if command -v claude >/dev/null 2>&1; then
+    claude plugin marketplace update "$MARKETPLACE_NAME" 2>&1 | tail -3 || true
+    claude plugin uninstall "$PLUGIN_REF" 2>&1 | tail -1 || true
+    echo "y" | claude plugin install "$PLUGIN_REF" --scope project 2>&1 | tail -1 || true
+  fi
+  echo
+  echo "✔ updated. Restart your session: claudeclaw restart"
+}
+
+cmd_doctor() {
+  local ok=0 fail=0
+  check() {
+    if eval "$2" >/dev/null 2>&1; then
+      printf "  ✓ %s\n" "$1"; ok=$((ok+1))
+    else
+      printf "  ✗ %s\n" "$1"; fail=$((fail+1))
+    fi
+  }
+  echo "claudeclaw doctor"
+  echo
+  echo "Dependencies:"
+  check "node 18+ on PATH"        'command -v node && [ "$(node -v | sed s/v// | cut -d. -f1)" -ge 18 ]'
+  check "npm on PATH"             'command -v npm'
+  check "git on PATH"             'command -v git'
+  check "tmux on PATH"            'command -v tmux'
+  check "jq on PATH"              'command -v jq'
+  check "curl on PATH"            'command -v curl'
+  echo
+  echo "Claude Code:"
+  check "claude on PATH"          'command -v claude'
+  check ".credentials.json"       '[ -s "$HOME/.claude/.credentials.json" ]'
+  check "onboarding complete"     'grep -q "\"hasCompletedOnboarding\"[[:space:]]*:[[:space:]]*true" "$HOME/.claude.json"'
+  check "marketplace registered"  'claude plugin marketplace list 2>/dev/null | grep -qE "[❯>][[:space:]]+$MARKETPLACE_NAME[[:space:]]*$"'
+  check "plugin installed"        'claude plugin list 2>/dev/null | grep -qE "[❯>][[:space:]]+$PLUGIN_REF([[:space:]]|$)"'
+  echo
+  echo "Telegram:"
+  check ".env present"            '[ -f "$ENV_FILE" ]'
+  check "bot token set"           'grep -q "^TELEGRAM_BOT_TOKEN=." "$ENV_FILE" 2>/dev/null'
+  check "access.json present"     '[ -f "$ACCESS_FILE" ]'
+  check "≥1 allowlist entry"      '[ "$(jq -r ".allowFrom // [] | length" "$ACCESS_FILE" 2>/dev/null)" -gt 0 ]'
+  check "api.telegram.org reachable" 'curl -fsS --max-time 5 https://api.telegram.org/ >/dev/null 2>&1 || curl -fsS --max-time 5 https://api.telegram.org -o /dev/null -w "%{http_code}" | grep -qE "^(2|3|4)"'
+  echo
+  echo "Plugin:"
+  check "node_modules present"    '[ -d "$PLUGIN_DIR/node_modules" ]'
+  check "server.ts present"       '[ -f "$PLUGIN_DIR/server.ts" ]'
+  echo
+  echo "Runtime:"
+  check "tmux session running"    'tmux has-session -t "$TMUX_SESSION" 2>/dev/null'
+  echo
+  echo "Result: $ok passed, $fail failed"
+  [ "$fail" -gt 0 ] && return 1 || return 0
+}
+
+cmd_uninstall() {
+  local purge=false
+  case "${1:-}" in --purge|-p) purge=true ;; esac
+
+  if command -v tmux >/dev/null 2>&1 && tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+    echo "→ stopping running session..."
+    tmux kill-session -t "$TMUX_SESSION"
+  fi
+
+  local shim="$HOME/.local/bin/claudeclaw"
+  if [ -L "$shim" ]; then
+    rm -f "$shim"
+    echo "✔ removed shim: $shim"
+  else
+    echo "  (no shim at $shim)"
+  fi
+
+  if [ "$purge" = true ]; then
+    if [ -d "$REPO_ROOT" ]; then
+      echo "→ deleting repo: $REPO_ROOT"
+      rm -rf "$REPO_ROOT"
+      echo "✔ purged"
+    fi
+  else
+    echo
+    echo "Repo at $REPO_ROOT was NOT deleted (contains your .env, pairing, profile)."
+    echo "  To delete it: claudeclaw uninstall --purge"
+  fi
+}
+
+# ────────────────────────────────────────────────────────────────────
+# Dispatcher
+# ────────────────────────────────────────────────────────────────────
+
+case "${1:-start}" in
+  start)            shift; ;;  # fall through to the main flow below
+  stop)             cmd_stop;     exit $? ;;
+  restart)          shift; cmd_restart "$@"; exit $? ;;
+  status)           cmd_status;   exit $? ;;
+  attach)           cmd_attach;   exit $? ;;
+  logs)             shift; cmd_logs "$@"; exit $? ;;
+  update)           cmd_update;   exit $? ;;
+  doctor)           cmd_doctor;   exit $? ;;
+  uninstall)        shift; cmd_uninstall "$@"; exit $? ;;
+  version|--version|-v) cmd_version; exit 0 ;;
+  help|--help|-h)   cmd_help;     exit 0 ;;
+  --no-tg)          ;;  # known flag for `start` — no-op here, parsed below
+  -*)               echo "ERROR: unknown flag: $1" >&2; cmd_help; exit 2 ;;
+  *)                echo "ERROR: unknown subcommand: $1" >&2; cmd_help; exit 2 ;;
+esac
+
+# ────────────────────────────────────────────────────────────────────
+# Main `start` flow (default subcommand) — original behavior follows
+# ────────────────────────────────────────────────────────────────────
 
 # --- If a claudeclaw tmux session is already running, offer to reattach ---
 # Skip this check if we're already inside tmux (the script may be re-execing
