@@ -8,8 +8,6 @@ If you've used [OpenClaw](https://github.com/openclaw/openclaw) and liked the mo
 
 ![claudeclaw demo](assets/demo.gif)
 
-> **Security note.** claudeclaw runs Claude Code in `bypassPermissions` mode by default — meaning Telegram messages from anyone on your pairing allowlist can ask the agent to run arbitrary shell commands. **The Telegram chat IS a remote shell to your host.** Pair only with accounts you fully trust. See [SECURITY.md](SECURITY.md) for the threat model and hardening guide.
-
 ## What you get
 
 - **Conversational onboarding.** First launch, the agent asks who you are, who *it* is, how it should communicate. No config files to hand-edit.
@@ -275,6 +273,18 @@ Open an issue at <https://github.com/aerolalit/claudeclaw/issues> with:
 - `claudeclaw version` output
 - Last 30 lines of `claudeclaw logs`
 - What you ran and what you expected to happen.
+
+## Security & trust model
+
+A few things worth knowing once you're set up — none of these are red flags, just good context:
+
+- **The Telegram chat is effectively a remote terminal.** Anyone you pair (on the `allowFrom` allowlist) can send messages that get executed with your local privileges. claudeclaw runs in `bypassPermissions` mode by default so the agent doesn't ask before each command — that's the whole UX. Pair only with accounts you fully trust.
+- **Your bot token is a credential.** It's stored in `.env` (chmod 600, gitignored). If it ever leaks, revoke immediately via `@BotFather` → `/revoke`.
+- **Your Claude Code auth token is also a credential.** `CLAUDE_CODE_OAUTH_TOKEN` in the same `.env` grants access to your claude.ai subscription. Same care applies.
+- **Hooks can run arbitrary shell.** `.claude/hooks/*.sh` execute on every tool call. Review them on first install and after any `git pull`. They're under 100 lines each — fast to audit.
+- **Prompt injection is real.** A webpage or file the agent reads can contain instructions that the agent then executes. With `bypassPermissions` on, there's no human-in-the-loop check. Don't point claudeclaw at untrusted inputs without thinking.
+
+For the full threat model, hardening recipes (deny rules, dropping bypass mode, dedicated user accounts, encrypting `.env` at rest), and how to report vulnerabilities, see **[SECURITY.md](SECURITY.md)**.
 
 ## License
 
