@@ -28,7 +28,7 @@ One line:
 curl -fsSL https://raw.githubusercontent.com/aerolalit/claudeclaw/main/install.sh | bash
 ```
 
-This installs prereqs (git, node) if missing, clones the repo to `~/claudeclaw`, and hands off to `./start.sh`. To install elsewhere: `CLAUDECLAW_DIR=/custom/path curl -fsSL ... | bash`.
+This installs prereqs (git, node) if missing, clones the repo to `~/claudeclaw`, drops a `claudeclaw` shim into `~/.local/bin`, and tells you to run `claudeclaw` for setup. To install elsewhere: `CLAUDECLAW_DIR=/custom/path curl -fsSL ... | bash`.
 
 Or do it manually:
 
@@ -38,7 +38,7 @@ cd ~/claudeclaw
 ./start.sh
 ```
 
-`start.sh` does everything else on first run:
+`claudeclaw` (or `./start.sh`) does everything else on first run:
 
 1. Installs Claude Code if missing (`claude.ai/install.sh`).
 2. Walks you through auth — interactive paste of a setup-token for headless servers, or `claude login` on desktop.
@@ -54,7 +54,9 @@ Then send any message in Claude (e.g. `hi`). The interview kicks in, you answer 
 
 Subsequent runs skip every setup step — straight to launch (or reattach to an existing tmux session).
 
-To launch without the Telegram bridge: `./start.sh --no-tg`.
+Daily use: `claudeclaw` (start or attach), `claudeclaw status`, `claudeclaw stop`, `claudeclaw logs`, `claudeclaw update`, `claudeclaw doctor`. See `claudeclaw help` for everything.
+
+To launch without the Telegram bridge: `claudeclaw --no-tg`.
 
 ## File layout
 
@@ -128,25 +130,25 @@ Per-user behaviour belongs in `profile/USER.md`. Cross-cutting filters (strip se
 
 ## Running on a server (Pi, VPS, etc.)
 
-Claude Code is interactive — it must be attached to a TTY. To keep claudeclaw running after you close the SSH session, wrap it in `tmux` on the server:
+Claude Code is interactive — it must be attached to a TTY. claudeclaw handles this for you with `tmux`: on first run it asks "should this keep running after you close the terminal?" and if yes, wraps the launch in a tmux session named `claudeclaw`.
+
+Typical flow:
 
 ```bash
-# install tmux once: sudo apt install -y tmux  (Linux)  or  brew install tmux  (Mac)
-
 ssh user@server
-tmux new -s claudeclaw 'cd ~/claudeclaw && ./start.sh'
-# the dev-channels prompt appears once — press Enter to confirm
-# then detach with: Ctrl+B then D
-# now back in your shell; close terminal — Claude keeps running
+claudeclaw                  # first time: setup + launches inside tmux
+                            # subsequent: detects existing session, asks to reattach
+# detach: Ctrl+B then D
+# close terminal — Claude keeps running on the server
 
 # tomorrow:
 ssh user@server
-tmux attach -t claudeclaw
+claudeclaw attach           # reconnects to the running session
 ```
 
 The dev-channels confirmation prompt fires every time `claude --dangerously-load-development-channels` is launched (Anthropic gates it deliberately while the channel system is in research preview). Inside tmux it's a one-time annoyance — Claude stays running, you only see the prompt on the first launch and after each restart.
 
-For boot-time autostart, add a systemd user service (Linux) or launchd plist (macOS) that runs `tmux new-session -d -s claudeclaw 'cd ~/claudeclaw && ./start.sh'` on login.
+For boot-time autostart, add a systemd user service (Linux) or launchd plist (macOS) that runs `tmux new-session -d -s claudeclaw 'claudeclaw'` on login.
 
 ## Stopping the heartbeat
 
@@ -154,10 +156,121 @@ Tell the agent "stop the heartbeat" in any session — it cancels the cron job. 
 
 ## Gotchas
 
-- **One Telegram session at a time per bot token.** If you have a stale Claude process still polling, restart cleanly with `pkill -f "claude --dangerously" && ./start.sh`.
+- **One Telegram session at a time per bot token.** If you have a stale Claude process still polling, restart cleanly with `claudeclaw restart`.
 - **Forked plugins are off the official channel allowlist** during the research preview. `start.sh` uses `--dangerously-load-development-channels` to bypass — fine for personal/team use, not what you'd use for a production deployment without a security review.
 - **Don't commit `.env` or `.telegram/`.** They're gitignored, but double-check after large refactors.
 - **Team / Enterprise users:** your admin must enable `channelsEnabled: true` in managed settings.
+
+## Troubleshooting
+
+Always start with:
+
+```bash
+claudeclaw doctor
+```
+
+It walks 19 health checks covering deps, Claude Code auth, plugin install, Telegram pairing, network reachability, and runtime state. The failing line tells you what's broken. Below are the most common failures and their fixes.
+
+### "claude: command not found" after install
+
+`~/.local/bin` isn't on your shell's PATH. The installer prints the exact line to add to your `~/.bashrc` / `~/.zshrc`. After adding it, `source ~/.bashrc` or open a new terminal.
+
+### "Claude Code is installed but not authenticated"
+
+Two valid auth paths:
+
+- **Desktop with browser:** run `claude login`.
+- **Server / Pi (no browser):** on a desktop machine, run `claude setup-token` and paste the token into `claudeclaw`'s `.env`:
+
+  ```bash
+  echo 'CLAUDE_CODE_OAUTH_TOKEN=<your-token>' >> ~/claudeclaw/.env
+  ```
+
+  `start.sh` walks you through this interactively if you re-run it.
+
+### Bot doesn't respond on Telegram
+
+1. `claudeclaw status` — is the tmux session running?
+2. `claudeclaw logs -f` — anything in the stream log?
+3. **Token revoked or wrong?** Reset via `@BotFather` → `/revoke` → paste new token into `.env`.
+4. **Pairing missing?** `cat .telegram/access.json` — is your `chat_id` in `allowFrom`? If not, re-run pairing: `claudeclaw stop && rm .telegram/access.json && claudeclaw start`.
+5. **Two bots polling the same token.** Telegram only allows one. Kill any leftover Claude processes: `pkill -f "claude --dangerously"`.
+
+### "Plugin not installed" on launch
+
+```bash
+claudeclaw stop
+cd ~/claudeclaw
+claude plugin marketplace remove claudeclaw 2>/dev/null
+claude plugin uninstall telegram@claudeclaw --scope project 2>/dev/null
+claudeclaw start
+```
+
+### tmux session is stuck / Claude crashed inside it
+
+```bash
+claudeclaw restart
+```
+
+If `claudeclaw status` shows the session running but you can't get output: `tmux kill-session -t claudeclaw && claudeclaw start`.
+
+### Markdown isn't rendering in Telegram replies
+
+Inspect `.claude/hooks/telegram-reply-format.sh` — that's the formatter. Run a smoke test:
+
+```bash
+echo '{"tool_name":"mcp__plugin_telegram_telegram__reply","tool_input":{"chat_id":"123","text":"# Hi\n- one\n- two"}}' \
+  | bash .claude/hooks/telegram-reply-format.sh \
+  | jq -r '.hookSpecificOutput.updatedInput.text'
+```
+
+If the output looks wrong, the hook has the bug. If it looks right, Telegram is rendering it but you're missing `format: "markdownv2"` (the hook auto-sets this — check it isn't being stripped elsewhere).
+
+### Hooks aren't firing
+
+The hooks live in `.claude/hooks/`. They're triggered by `.claude/settings.json` events. Check:
+
+```bash
+cat .claude/settings.json | jq '.hooks'      # are the events registered?
+ls -la .claude/hooks/                         # files executable (chmod +x)?
+tail -f .telegram/stream.log                  # any silent failures logged?
+```
+
+Hooks fail silently to `stream.log` by design (so a hook bug doesn't kill your session). Always check that file when something feels off.
+
+### "session 'claudeclaw' already exists" when starting
+
+Either you have a leftover tmux session (`tmux kill-session -t claudeclaw`) or you're inside an outer tmux already (`echo $TMUX` will show a non-empty path). Detach the outer one or run `claudeclaw start` from a non-tmux shell.
+
+### Re-pairing without losing token
+
+```bash
+claudeclaw stop
+rm .telegram/access.json
+claudeclaw start
+```
+
+Only `access.json` (sender allowlist) gets reset. Bot token in `.env` stays.
+
+### Update broke something — how do I roll back?
+
+```bash
+cd ~/claudeclaw
+git log --oneline | head -5     # find a good commit
+git checkout <commit-sha>
+claudeclaw restart
+```
+
+Or wipe and reinstall: `claudeclaw uninstall --purge && curl -fsSL https://raw.githubusercontent.com/aerolalit/claudeclaw/main/install.sh | bash`.
+
+### Still stuck
+
+Open an issue at <https://github.com/aerolalit/claudeclaw/issues> with:
+
+- `claudeclaw doctor` output
+- `claudeclaw version` output
+- Last 30 lines of `claudeclaw logs`
+- What you ran and what you expected to happen.
 
 ## License
 
