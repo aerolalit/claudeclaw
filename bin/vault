@@ -27,9 +27,10 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VAULT_PATH="${VAULT_PATH:-$REPO_ROOT/vault}"
 
-if [ ! -d "$VAULT_PATH" ]; then
+# Bypass the existence check for `scaffold` — its whole job is to create the dir.
+if [ ! -d "$VAULT_PATH" ] && [ "${1:-}" != "scaffold" ]; then
   echo "ERROR: vault not found at $VAULT_PATH" >&2
-  echo "  Set VAULT_PATH in .env or create the directory." >&2
+  echo "  Run 'bin/vault scaffold' to create it, or set VAULT_PATH in .env." >&2
   exit 1
 fi
 
