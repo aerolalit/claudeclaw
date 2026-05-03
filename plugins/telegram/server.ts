@@ -19,6 +19,7 @@ import { z } from 'zod'
 import { Bot, GrammyError, InlineKeyboard, InputFile, type Context } from 'grammy'
 import type { ReactionTypeEmoji } from 'grammy/types'
 import { randomBytes } from 'crypto'
+import { spawn } from 'child_process'
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, statSync, renameSync, realpathSync, chmodSync } from 'fs'
 import { homedir } from 'os'
 import { join, extname, sep } from 'path'
@@ -886,7 +887,9 @@ bot.command('help', async ctx => {
     `Text and photos are forwarded; replies and reactions come back.\n\n` +
     `/start — pairing instructions\n` +
     `/status — check your pairing state\n` +
-    `/stream on|off — toggle the live tool-call progress message (default: on)`
+    `/stream on|off — toggle the live tool-call progress message (default: on)\n` +
+    `/compact — compact the CLI's context\n` +
+    `/clear — wipe the CLI's conversation history`
   )
 })
 
@@ -911,6 +914,60 @@ bot.command('status', async ctx => {
   }
 
   await ctx.reply(`Not paired. Send me a message to get a pairing code.`)
+})
+
+// Inject a slash command into the running claudeclaw tmux session so
+// CLI builtins like /compact and /clear can be triggered from Telegram.
+// Only works when claudeclaw was launched via start.sh (which creates
+// the "claudeclaw" tmux session). Allowlisted commands only — never
+// pass arbitrary user input to send-keys.
+async function sendToClaudeCLI(slash: string): Promise<{ ok: boolean; reason?: string }> {
+  const ALLOWED = new Set(['/compact', '/clear'])
+  if (!ALLOWED.has(slash)) return { ok: false, reason: 'command not allowed' }
+  const session = process.env.CLAUDECLAW_TMUX_SESSION ?? 'claudeclaw'
+  const run = (args: string[]): Promise<number> => new Promise(resolve => {
+    try {
+      const p = spawn('tmux', args, { stdio: 'ignore' })
+      p.on('error', () => resolve(-1))
+      p.on('exit', (code: number | null) => resolve(code ?? -1))
+    } catch {
+      resolve(-1)
+    }
+  })
+  const hasCode = await run(['has-session', '-t', session])
+  if (hasCode === -1) return { ok: false, reason: 'tmux not available on PATH' }
+  if (hasCode !== 0) return { ok: false, reason: `tmux session '${session}' not running` }
+  const sendCode = await run(['send-keys', '-t', session, slash, 'Enter'])
+  if (sendCode !== 0) return { ok: false, reason: 'tmux send-keys failed' }
+  return { ok: true }
+}
+
+bot.command('compact', async ctx => {
+  const gated = dmCommandGate(ctx)
+  if (!gated) return
+  const { access, senderId } = gated
+  if (!access.allowFrom.includes(senderId)) {
+    await ctx.reply(`Not paired — run /start first.`)
+    return
+  }
+  const result = await sendToClaudeCLI('/compact')
+  await ctx.reply(result.ok
+    ? `Sent /compact to the CLI. Compaction will run before the next turn.`
+    : `Couldn't reach the CLI: ${result.reason}.`)
+})
+
+bot.command('clear', async ctx => {
+  const gated = dmCommandGate(ctx)
+  if (!gated) return
+  const { access, senderId } = gated
+  if (!access.allowFrom.includes(senderId)) {
+    await ctx.reply(`Not paired — run /start first.`)
+    return
+  }
+  const result = await sendToClaudeCLI('/clear')
+  await ctx.reply(result.ok
+    ? `Sent /clear to the CLI. Conversation history wiped.`
+    : `Couldn't reach the CLI: ${result.reason}.`)
 })
 
 bot.command('stream', async ctx => {
@@ -1331,6 +1388,8 @@ void (async () => {
               { command: 'help', description: 'What this bot can do' },
               { command: 'status', description: 'Check your pairing status' },
               { command: 'stream', description: 'Toggle live tool-call progress (on|off|status)' },
+              { command: 'compact', description: 'Compact the running CLI session' },
+              { command: 'clear', description: 'Wipe the running CLI conversation' },
             ],
             { scope: { type: 'all_private_chats' } },
           ).catch(() => {})
