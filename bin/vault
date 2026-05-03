@@ -10,6 +10,8 @@
 #   vault backlinks <name>          files that contain [[name]]
 #   vault index                     regenerate index.md (Karpathy-style catalog)
 #   vault ls [path]                 list .md files
+#   vault log "<line>"              append timestamped line to vault/log.md
+#   vault scaffold                  ensure Karpathy layout exists (raw/, wiki/people, etc.)
 #
 # Roadmap (not in v1): tag/tags (need real YAML parser), project queries,
 # generic frontmatter queries, SQLite FTS5 backend with temporal decay.
@@ -260,6 +262,46 @@ cmd_ls() {
     | sort
 }
 
+# Append-only audit trail. Format: "<ISO-time> [<source>] <line>"
+# Source defaults to "manual" but digest hooks pass "stop" / "precompact" / "session-end".
+cmd_log() {
+  local line="$*"
+  [ -z "$line" ] && { echo "usage: vault log <line>" >&2; exit 2; }
+  local source="manual"
+  # Allow a leading [source] override: vault log "[stop] saved wiki/people/X.md"
+  if [[ "$line" =~ ^\[([a-z-]+)\][[:space:]]+(.+)$ ]]; then
+    source="${BASH_REMATCH[1]}"
+    line="${BASH_REMATCH[2]}"
+  fi
+  printf '%s [%s] %s\n' "$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S%z)" "$source" "$line" >> "$VAULT_PATH/log.md"
+}
+
+# Ensure the Karpathy-style layout exists. Idempotent — safe to call on
+# every launch from start.sh.
+cmd_scaffold() {
+  mkdir -p "$VAULT_PATH/raw" \
+           "$VAULT_PATH/daily-notes" \
+           "$VAULT_PATH/wiki/people" \
+           "$VAULT_PATH/wiki/concepts" \
+           "$VAULT_PATH/wiki/projects" \
+           "$VAULT_PATH/wiki/entities"
+  # Create log.md if missing — empty file ok, hooks will append.
+  [ -f "$VAULT_PATH/log.md" ] || cat > "$VAULT_PATH/log.md" <<EOF
+# Vault audit log
+
+Append-only. Each line: \`<ISO-time> [<source>] <summary>\`. Sources:
+
+- \`manual\` — user / agent direct write
+- \`stop\` — Stop-hook digest (after each turn)
+- \`precompact\` — PreCompact-hook digest (before context compaction)
+- \`session-end\` — SessionEnd-hook digest (final pass)
+
+EOF
+  # Create initial index.md if missing.
+  [ -f "$VAULT_PATH/index.md" ] || cmd_index >/dev/null
+  echo "✔ vault scaffolded at $VAULT_PATH"
+}
+
 case "${1:-}" in
   search) shift; cmd_search "$@" ;;
   read) shift; cmd_read "$@" ;;
@@ -269,6 +311,8 @@ case "${1:-}" in
   backlinks) shift; cmd_backlinks "$@" ;;
   index) cmd_index ;;
   ls) shift; cmd_ls "$@" ;;
+  log) shift; cmd_log "$@" ;;
+  scaffold) cmd_scaffold ;;
   ""|--help|-h)
     sed -n '/^# bin\/vault/,/^$/p' "$0" | sed 's/^# \?//'
     ;;
