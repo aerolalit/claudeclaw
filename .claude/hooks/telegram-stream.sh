@@ -181,6 +181,13 @@ BUFFER=$(jq -r '.buffer // ""' "$STATE_FILE")
 [ -z "$CHAT_ID" ] && exit 0
 # MSG_ID may be empty on first qualifying tool call — we lazy-create below.
 
+# --- Per-chat streaming toggle (via /stream off in Telegram). Default: enabled. ---
+STREAM_SETTINGS_FILE="$TG_STATE_DIR/stream_settings.json"
+if [ -f "$STREAM_SETTINGS_FILE" ]; then
+  ENABLED=$(jq -r --arg cid "$CHAT_ID" '.[$cid].enabled // true' "$STREAM_SETTINGS_FILE" 2>/dev/null)
+  if [ "$ENABLED" = "false" ]; then exit 0; fi
+fi
+
 # --- Build the new line based on event ---
 if [ "$EVENT" = "PreToolUse" ]; then
   NEW_LINE="🔄 ${EMOJI} ${TOOL}(${INPUT_DESC})"

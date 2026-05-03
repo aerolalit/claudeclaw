@@ -27,6 +27,7 @@ const STATE_DIR = process.env.TELEGRAM_STATE_DIR ?? join(homedir(), '.claude', '
 const ACCESS_FILE = join(STATE_DIR, 'access.json')
 const APPROVED_DIR = join(STATE_DIR, 'approved')
 const ENV_FILE = join(STATE_DIR, '.env')
+const STREAM_SETTINGS_FILE = join(STATE_DIR, 'stream_settings.json')
 
 // Load ~/.claude/channels/telegram/.env into process.env. Real env wins.
 // Plugin-spawned servers don't get an env block — this is where the token lives.
@@ -205,6 +206,35 @@ function saveAccess(a: Access): void {
   const tmp = ACCESS_FILE + '.tmp'
   writeFileSync(tmp, JSON.stringify(a, null, 2) + '\n', { mode: 0o600 })
   renameSync(tmp, ACCESS_FILE)
+}
+
+type StreamSettings = Record<string, { enabled: boolean }>
+
+function loadStreamSettings(): StreamSettings {
+  try {
+    return JSON.parse(readFileSync(STREAM_SETTINGS_FILE, 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
+function saveStreamSettings(s: StreamSettings): void {
+  if (STATIC) return
+  mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 })
+  const tmp = STREAM_SETTINGS_FILE + '.tmp'
+  writeFileSync(tmp, JSON.stringify(s, null, 2) + '\n', { mode: 0o600 })
+  renameSync(tmp, STREAM_SETTINGS_FILE)
+}
+
+function isStreamEnabled(chat_id: string): boolean {
+  const s = loadStreamSettings()
+  return s[chat_id]?.enabled !== false  // default: on
+}
+
+function setStreamEnabled(chat_id: string, enabled: boolean): void {
+  const s = loadStreamSettings()
+  s[chat_id] = { enabled }
+  saveStreamSettings(s)
 }
 
 function pruneExpired(a: Access): boolean {
@@ -854,7 +884,8 @@ bot.command('help', async ctx => {
     `Messages you send here route to a paired Claude Code session. ` +
     `Text and photos are forwarded; replies and reactions come back.\n\n` +
     `/start — pairing instructions\n` +
-    `/status — check your pairing state`
+    `/status — check your pairing state\n` +
+    `/stream on|off — toggle the live tool-call progress message (default: on)`
   )
 })
 
@@ -879,6 +910,37 @@ bot.command('status', async ctx => {
   }
 
   await ctx.reply(`Not paired. Send me a message to get a pairing code.`)
+})
+
+bot.command('stream', async ctx => {
+  const gated = dmCommandGate(ctx)
+  if (!gated) return
+  const { access, senderId } = gated
+  if (!access.allowFrom.includes(senderId)) {
+    await ctx.reply(`Not paired — run /start first.`)
+    return
+  }
+  const chat_id = String(ctx.chat!.id)
+  const arg = (ctx.match ?? '').toString().trim().toLowerCase()
+  const current = isStreamEnabled(chat_id)
+  let next: boolean
+  switch (arg) {
+    case 'on':  next = true; break
+    case 'off': next = false; break
+    case '':    next = !current; break  // bare /stream toggles
+    case 'status':
+      await ctx.reply(`Tool-call streaming is ${current ? 'on' : 'off'} for this chat.`)
+      return
+    default:
+      await ctx.reply(`Usage: /stream on|off|status`)
+      return
+  }
+  setStreamEnabled(chat_id, next)
+  await ctx.reply(
+    next
+      ? `Tool-call streaming on. You'll see the live progress message during turns.`
+      : `Tool-call streaming off. The 👀 reaction and final reply still come through.`
+  )
 })
 
 // Inline-button handler for permission requests. Callback data is
@@ -1234,6 +1296,7 @@ void (async () => {
               { command: 'start', description: 'Welcome and setup guide' },
               { command: 'help', description: 'What this bot can do' },
               { command: 'status', description: 'Check your pairing status' },
+              { command: 'stream', description: 'Toggle live tool-call progress (on|off|status)' },
             ],
             { scope: { type: 'all_private_chats' } },
           ).catch(() => {})
