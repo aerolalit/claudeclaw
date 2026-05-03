@@ -101,14 +101,15 @@ echo "✔ claudeclaw installed at $INSTALL_DIR"
 echo "→ launching ./start.sh..."
 echo
 
-# Hand off. exec replaces this shell so start.sh owns the terminal.
-# When this script is run via `curl ... | bash`, stdin is the curl pipe (now
-# closed). Re-attach stdin to the controlling TTY so start.sh's interactive
-# prompts work. /dev/tty is the standard POSIX way to address the user's
-# real terminal, regardless of how stdin was redirected.
+# Hand off. When run via `curl ... | bash`, stdin/stdout/stderr are pipes
+# back to curl — stdin is closed (curl finished sending the script), and
+# stdout is line-buffered or block-buffered, so prompt text from start.sh
+# may never reach the user's terminal until the script exits. Reattach
+# all three to /dev/tty (the user's controlling terminal) so interactive
+# prompts work normally.
 cd "$INSTALL_DIR"
 if [ -e /dev/tty ]; then
-  exec </dev/tty
+  exec </dev/tty >/dev/tty 2>/dev/tty
 else
   echo "ERROR: no controlling TTY available — can't run interactive setup." >&2
   echo "  Try: cd $INSTALL_DIR && ./start.sh" >&2
