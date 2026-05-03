@@ -69,10 +69,13 @@ ensure curl
 # Node 18+ — package name varies by distro.
 if ! command -v node >/dev/null 2>&1; then
   echo "→ node not found, installing..."
+  # Prefer just `nodejs` on apt/dnf — npm ships bundled with both Debian's
+  # and NodeSource's nodejs packages, and asking for both can hit a
+  # conflict on systems where NodeSource's repo is configured.
   case "$PKG" in
-    apt)    apt_pkg nodejs npm ;;
+    apt)    apt_pkg nodejs ;;
     brew)   brew_pkg node ;;
-    dnf)    dnf_pkg nodejs npm ;;
+    dnf)    dnf_pkg nodejs ;;
     pacman) pacman_pkg nodejs npm ;;
     apk)    apk_pkg nodejs npm ;;
     *)
@@ -81,7 +84,21 @@ if ! command -v node >/dev/null 2>&1; then
       ;;
   esac
 fi
-ensure npm
+# Some distros split npm into a separate package — re-check and install if missing.
+if ! command -v npm >/dev/null 2>&1; then
+  echo "→ npm not bundled with nodejs, installing separately..."
+  case "$PKG" in
+    apt)    apt_pkg npm ;;
+    brew)   : ;;  # npm bundled with brew node
+    dnf)    dnf_pkg npm ;;
+    pacman) : ;;  # already requested
+    apk)    : ;;  # already requested
+    *)
+      echo "ERROR: install npm manually." >&2
+      exit 1
+      ;;
+  esac
+fi
 
 # --- Clone or update ---
 if [ -d "$INSTALL_DIR/.git" ]; then
