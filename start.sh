@@ -345,11 +345,22 @@ for arg in "$@"; do
 done
 
 # --- Load repo-local .env if present ---
+# Parse line-by-line instead of `source`-ing — shell-special chars (parens,
+# backticks, $, etc.) inside values would otherwise be interpreted as syntax
+# and break the load. Format: KEY=VALUE, no quoting, no shell interpolation.
+# Lines starting with # or empty are skipped.
 if [ -f "$ENV_FILE" ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . "$ENV_FILE"
-  set +a
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      ''|\#*) continue ;;
+      [A-Za-z_]*=*)
+        key="${line%%=*}"
+        value="${line#*=}"
+        # Trust the file; just export. No shell expansion of value.
+        export "$key=$value"
+        ;;
+    esac
+  done < "$ENV_FILE"
 fi
 
 # --- Tell the plugin (and standalone bot below) where to put state ---
