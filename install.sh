@@ -101,18 +101,27 @@ echo "✔ claudeclaw installed at $INSTALL_DIR"
 echo "→ launching ./start.sh..."
 echo
 
-# Hand off. When run via `curl ... | bash`, stdin/stdout/stderr are pipes
-# back to curl — stdin is closed (curl finished sending the script), and
-# stdout is line-buffered or block-buffered, so prompt text from start.sh
-# may never reach the user's terminal until the script exits. Reattach
-# all three to /dev/tty (the user's controlling terminal) so interactive
-# prompts work normally.
 cd "$INSTALL_DIR"
-if [ -e /dev/tty ]; then
-  exec </dev/tty >/dev/tty 2>/dev/tty
+
+# When this script is run via `curl ... | bash`, stdin is the curl pipe
+# (closed by the time we get here) and trying to drive interactive
+# prompts is fragile across shells/distros. The honest move: if we're
+# running non-interactively, install completed cleanly — just tell the
+# user the next command and exit. They run it from a real terminal
+# where stdin/stdout are sane.
+if [ -t 0 ]; then
+  # Real TTY: drive the rest of setup directly.
+  exec ./start.sh
 else
-  echo "ERROR: no controlling TTY available — can't run interactive setup." >&2
-  echo "  Try: cd $INSTALL_DIR && ./start.sh" >&2
-  exit 1
+  cat <<EOF
+─────────────────────────────────────────────────────────────────
+Next: open a terminal in $INSTALL_DIR and run setup interactively:
+
+  cd $INSTALL_DIR
+  ./start.sh
+
+start.sh will walk you through Claude Code auth, plugin install,
+bot token, and Telegram pairing.
+─────────────────────────────────────────────────────────────────
+EOF
 fi
-exec ./start.sh
