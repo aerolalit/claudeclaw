@@ -26,16 +26,10 @@ If you've used [OpenClaw](https://github.com/openclaw/openclaw) and liked the mo
 
 ## Quickstart
 
-One line — pinned to a release tag (the safest way to use a `curl | bash` installer):
+One line — pinned to the v0.1.0 release tag:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/aerolalit/claudeclaw/v0.1.0/install.sh | bash
-```
-
-Or the rolling `main` URL (auto-updates with new releases, but trusts whatever is on `main` today):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/aerolalit/claudeclaw/main/install.sh | bash
 ```
 
 This installs prereqs (git, node) if missing, clones the repo to `~/claudeclaw`, drops a `claudeclaw` shim into `~/.local/bin`, and tells you to run `claudeclaw` for setup. To install elsewhere: `CLAUDECLAW_DIR=/custom/path curl -fsSL ... | bash`.
