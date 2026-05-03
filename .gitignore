@@ -64,3 +64,9 @@ plugins/telegram/*
 # --- Profile templates ---
 !templates/
 !templates/**
+
+# --- Documentation + assets (README GIFs, screenshots, etc.) ---
+!docs/
+!docs/**
+!assets/
+!assets/**

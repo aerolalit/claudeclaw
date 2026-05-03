@@ -6,6 +6,8 @@ claudeclaw is a workspace template for people who already pay for Claude (Pro/Ma
 
 If you've used [OpenClaw](https://github.com/openclaw/openclaw) and liked the model but didn't want to pay twice for inference, this is that pattern reimplemented on Claude Code's primitives (hooks, skills, channel plugins).
 
+![claudeclaw demo](assets/demo.gif)
+
 ## What you get
 
 - **Conversational onboarding.** First launch, the agent asks who you are, who *it* is, how it should communicate. No config files to hand-edit.
