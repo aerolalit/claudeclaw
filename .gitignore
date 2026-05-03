@@ -21,6 +21,12 @@
 !start.sh
 !.env.example
 
+# --- vault tooling (CLI, gitignored vault content) ---
+!bin/
+!bin/**
+# vault/ is intentionally NOT un-ignored: it holds user content (markdown
+# notes), populated either at the repo root or via VAULT_PATH=/elsewhere.
+
 # --- Claude Code config ---
 !.claude/
 .claude/*
