@@ -404,68 +404,48 @@ if [ "$authed" != "true" ]; then
   cat <<'EOF'
 
 Claude Code is installed but not authenticated.
-Pick how you want to authenticate:
 
-  [1] Headless (paste a setup-token) — for servers, Pi, VPS, no browser here
-  [2] Desktop  (run `claude login`)  — for Mac, desktop Linux with a browser
-  [3] Quit
+Generate a long-lived auth token from any machine with a browser:
 
-EOF
-  read -r -p "Choice [1/2/3]: " auth_choice
-  case "${auth_choice:-1}" in
-    1)
-      cat <<'EOF'
+  1. On that machine, run:  claude setup-token
+  2. Sign in to claude.ai when prompted
+  3. Copy the long token it prints
 
-On a different machine WITH a browser, run:
-
-    claude setup-token
-
-Sign in to claude.ai when prompted. Copy the long token it prints.
-(Requires a Claude Pro / Max / Team subscription. Token valid ~1 year.)
+(Requires a Claude Pro / Max / Team subscription. Token valid ~1 year.
+ Prefer browser login on this machine instead? Ctrl+C, run `claude
+ login`, then re-run claudeclaw.)
 
 EOF
-      read -r -p "Paste the setup-token here: " setup_token
-      setup_token="$(echo "$setup_token" | tr -d '[:space:]')"
-      if [ -z "$setup_token" ]; then
-        echo "ERROR: no token provided" >&2
-        exit 1
-      fi
-      # Write to .env (replace existing line if present, else append).
-      touch "$ENV_FILE"
-      if grep -q "^CLAUDE_CODE_OAUTH_TOKEN=" "$ENV_FILE" 2>/dev/null; then
-        sed -i.bak "s|^CLAUDE_CODE_OAUTH_TOKEN=.*|CLAUDE_CODE_OAUTH_TOKEN=${setup_token}|" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
-      else
-        echo "CLAUDE_CODE_OAUTH_TOKEN=${setup_token}" >> "$ENV_FILE"
-      fi
-      chmod 600 "$ENV_FILE"
-      export CLAUDE_CODE_OAUTH_TOKEN="$setup_token"
-      # Mark onboarding done so interactive `claude` doesn't block on the wizard.
-      mkdir -p "$HOME/.claude"
-      if [ ! -f "$HOME/.claude.json" ]; then
-        echo '{"hasCompletedOnboarding":true}' > "$HOME/.claude.json"
-      elif ! grep -q '"hasCompletedOnboarding"[[:space:]]*:[[:space:]]*true' "$HOME/.claude.json"; then
-        # File exists but missing the flag — patch it. Best effort with jq, fall back to overwrite.
-        if command -v jq >/dev/null 2>&1; then
-          tmp=$(mktemp); jq '.hasCompletedOnboarding=true' "$HOME/.claude.json" > "$tmp" && mv "$tmp" "$HOME/.claude.json"
-        else
-          echo '{"hasCompletedOnboarding":true}' > "$HOME/.claude.json"
-        fi
-      fi
-      chmod 600 "$HOME/.claude.json"
-      echo
-      echo "✔ Token saved to .env and onboarding marked complete."
-      ;;
-    2)
-      echo
-      echo "Run:  claude login"
-      echo "Then re-run ./start.sh"
-      exit 0
-      ;;
-    *)
-      echo "Aborting."
-      exit 1
-      ;;
-  esac
+  read -r -p "Paste the setup-token here: " setup_token
+  setup_token="$(echo "$setup_token" | tr -d '[:space:]')"
+  if [ -z "$setup_token" ]; then
+    echo "ERROR: no token provided" >&2
+    exit 1
+  fi
+  # Write to .env (replace existing line if present, else append).
+  touch "$ENV_FILE"
+  if grep -q "^CLAUDE_CODE_OAUTH_TOKEN=" "$ENV_FILE" 2>/dev/null; then
+    sed -i.bak "s|^CLAUDE_CODE_OAUTH_TOKEN=.*|CLAUDE_CODE_OAUTH_TOKEN=${setup_token}|" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
+  else
+    echo "CLAUDE_CODE_OAUTH_TOKEN=${setup_token}" >> "$ENV_FILE"
+  fi
+  chmod 600 "$ENV_FILE"
+  export CLAUDE_CODE_OAUTH_TOKEN="$setup_token"
+  # Mark onboarding done so interactive `claude` doesn't block on the wizard.
+  mkdir -p "$HOME/.claude"
+  if [ ! -f "$HOME/.claude.json" ]; then
+    echo '{"hasCompletedOnboarding":true}' > "$HOME/.claude.json"
+  elif ! grep -q '"hasCompletedOnboarding"[[:space:]]*:[[:space:]]*true' "$HOME/.claude.json"; then
+    # File exists but missing the flag — patch it. Best effort with jq, fall back to overwrite.
+    if command -v jq >/dev/null 2>&1; then
+      tmp=$(mktemp); jq '.hasCompletedOnboarding=true' "$HOME/.claude.json" > "$tmp" && mv "$tmp" "$HOME/.claude.json"
+    else
+      echo '{"hasCompletedOnboarding":true}' > "$HOME/.claude.json"
+    fi
+  fi
+  chmod 600 "$HOME/.claude.json"
+  echo
+  echo "✔ Token saved to .env and onboarding marked complete."
 fi
 
 # --- Ensure plugin dependencies are installed ---
