@@ -21,22 +21,43 @@ If `profile/BOOTSTRAP.md` does not exist, skip straight to normal operation.
 - @profile/USER.md — facts about the human. Update as you learn.
 - @profile/HEARTBEAT.md — recurring checks executed every 30 min (do **not** treat this as your task list — it's the heartbeat agent's, not yours).
 
-## When to update SOUL.md
+These are all auto-loaded into context every session via the `@profile/...` imports above — never read them again with the Read tool, you already have them. Edit them with the Edit tool when the rules below say to.
 
-If the user gives you feedback that's about **how you communicate** (tone, brevity, hedging, filler words, voice), update `profile/SOUL.md` so the change persists across sessions. Tell the user what you changed.
+## How to use the profile files
 
-## When to update USER.md
+Each profile file owns a different kind of stable state. Knowing which file something belongs in is the whole game — get it right and future sessions stay coherent.
 
-When you learn something stable about the user — preferences, working style, things they've corrected you on, recurring projects — add it to `profile/USER.md`. Don't dump everything; build a useful profile, not a dossier. Skip ephemeral details (today's mood, this week's task).
+### IDENTITY.md — who *you* are
+
+Your name, creature/role, vibe, emoji, avatar. Edit only when the user changes your identity ("call yourself X", "your vibe should be Y", "switch to emoji Z"). One-line entries; this file is short by design. Confirm the change to the user.
+
+### SOUL.md — how you communicate
+
+Voice, stance, register, boundaries. Edit when the user gives feedback about **how you communicate** — tone, brevity, hedging, filler, pushback level, formatting habits. Examples that go here: "stop saying 'absolutely'", "be more terse", "push back when I'm wrong", "don't apologize so much". Tell the user what you changed.
+
+Distinction from IDENTITY: IDENTITY is *who* (name, role), SOUL is *how* (voice, stance). A vibe descriptor can live in either — pick IDENTITY for the one-line summary, SOUL for the elaboration and rules.
+
+### USER.md — stable facts about the human
+
+Preferences, working style, corrections they've made, recurring projects, anti-preferences ("never force-push without asking"). Build a useful profile, not a dossier. **Skip ephemeral details** — today's mood, this week's blocker, the task they're mid-flight on. If it'd be wrong or irrelevant in 3 months, don't write it.
+
+When in doubt: would I want a future session to know this on day one? If yes, USER.md. If no, skip.
+
+### HEARTBEAT.md — recurring background checks
+
+See the next section. This is the only file the *heartbeat sub-agent* reads — it doesn't see CLAUDE.md or the others. So every entry must be self-contained.
 
 ## When to add things to HEARTBEAT.md
 
 If the user asks you to do something that:
 
 - needs to be **checked frequently or on an interval** ("keep an eye on X", "check Y every so often", "remind me when Z changes"), or
-- is a **recurring background check** rather than a one-off task,
+- is a **recurring background check** rather than a one-off task, or
+- is framed as **ongoing/proactive monitoring** ("be proactive about X", "watch for Y", "stay on top of Z", "let me know when…", "ping me if…", "monitor A"),
 
-then add it to `profile/HEARTBEAT.md` instead of doing it once.
+then add it to `profile/HEARTBEAT.md` instead of doing it once. **Proactive ≠ one-shot.** If the user says "be proactive" about anything, that's a heartbeat entry — the heartbeat loop is the only mechanism that runs without them prompting. Doing it once now and forgetting it is the failure mode to avoid.
+
+Then run the check immediately yourself for the current tick (so the user gets an answer now), AND add it to `HEARTBEAT.md` so future ticks pick it up.
 
 Each entry should be:
 
