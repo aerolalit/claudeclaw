@@ -43,6 +43,13 @@
 
 set -euo pipefail
 
+# Make sure common user-bin paths are on PATH — non-interactive shells
+# (e.g. curl-pipe-bash, ssh -c) don't source .bashrc, so they miss these.
+for bin_dir in "$HOME/.local/bin" "$HOME/bin" "$HOME/.npm-global/bin"; do
+  case ":$PATH:" in *:"$bin_dir":*) ;; *) [ -d "$bin_dir" ] && PATH="$bin_dir:$PATH" ;; esac
+done
+export PATH
+
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_DIR="$REPO_ROOT/plugins/telegram"
 MARKETPLACE_NAME="claudeclaw"
