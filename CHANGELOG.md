@@ -12,6 +12,8 @@ _(Nothing yet.)_
 
 First public release. Establishes the OpenClaw-on-Claude-Code pattern: BOOTSTRAP / IDENTITY / SOUL / USER / HEARTBEAT files driving an always-on agent that talks to Telegram.
 
+> **Note on the 0.1.0 tag:** during pre-launch, the v0.1.0 tag was force-moved once on 2026-05-03 to absorb a batch of installer/security/UX fixes that landed in the same hour as the initial tag. This was acceptable because the tag had no public consumers yet. Future releases will not move tags; new fixes get new versions.
+
 ### Added
 
 - **One-line install** — `curl -fsSL https://raw.githubusercontent.com/aerolalit/claudeclaw/main/install.sh | bash` clones the repo, drops a `claudeclaw` shim into `~/.local/bin`, and walks the user through auth + bot token + pairing on next launch.
@@ -32,12 +34,15 @@ First public release. Establishes the OpenClaw-on-Claude-Code pattern: BOOTSTRAP
   - **👀 reaction on inbound** — visual ack the moment the bot sees your message.
 - **Heartbeat loop** — recurring 30-min sub-agent that reads `profile/HEARTBEAT.md` and runs whatever's in it. Filtered out of tool-call streaming so it doesn't spam Telegram.
 - **Profile system** — `templates/{IDENTITY,SOUL,USER,HEARTBEAT,BOOTSTRAP}.md` (tracked) auto-copied into `profile/` (gitignored) on first session. CLAUDE.md auto-imports them.
-- **Headless auth flow** — interactive `[1] headless` / `[2] desktop` branch in `start.sh`. Headless path walks the user through `claude setup-token` and persists the token to `.env`.
+- **Headless auth flow** — `start.sh` walks the user through `claude setup-token` interactively (paste-prompt with hidden input), persists token to `.env`, marks onboarding done in `~/.claude.json` so interactive `claude` doesn't pop the wizard.
 - **tmux integration** — opt-in prompt asking "should this keep running after you close the terminal?" auto-installs tmux via `apt`/`brew`/`dnf`/`pacman`/`apk` if missing, wraps the launch, returns to shell on detach.
 - **Vault memory CLI** at `bin/vault` (option A: ripgrep + Karpathy-style `index.md`). Verbs: `search`, `read`, `write`, `daily`, `daily-append`, `backlinks`, `index`, `ls`. Works on a folder of markdown notes (Obsidian-compatible). Configurable via `VAULT_PATH`.
 - **Per-instance Telegram state** — bot token, allowlist, bot.pid all live in `<repo>/.telegram/` (gitignored), not `~/.claude/channels/telegram/`. One claudeclaw checkout = one bot, one workspace. Plugin honours `TELEGRAM_STATE_DIR`.
 - **`claudeclaw doctor`** — 19 health checks: Node/npm/git/tmux/jq/curl on PATH, Claude Code installed and authenticated, plugin marketplace registered, plugin installed, `.env` populated, allowlist populated, api.telegram.org reachable, tmux session running.
 - **CONTRIBUTING.md** — what's in scope, dev setup, code conventions, PR checklist.
+- **SECURITY.md** — threat model, hardening guide (drop bypass mode, deny rules, dedicated user, encrypt .env, audit hooks), where to report vulnerabilities.
+- **Heartbeat-arming runs at end of first turn, not before reply** — first Telegram message gets answered immediately; the heartbeat cron arms silently in the background after.
+- **Streaming filter for the heartbeat-arming chain** — `Skill(loop)`, `CronCreate`, `CronList`, `CronDelete`, `ToolSearch` are filtered out of the Telegram tool-call stream so users never see the plumbing.
 
 ### Changed
 
@@ -48,6 +53,10 @@ First public release. Establishes the OpenClaw-on-Claude-Code pattern: BOOTSTRAP
 
 - `.env` and `.telegram/` are gitignored via a strict allowlist `.gitignore` — new files are silently ignored unless explicitly un-ignored.
 - Repo-local `.env` is `chmod 600`, `.telegram/` is `chmod 700` after first run.
+- **Silent token reads** (`read -rs`) — neither the Claude setup-token nor the Telegram bot token echo to the terminal during paste, so they don't end up in tmux scrollback, asciinema, or session logs.
+- **Quickstart leads with a tagged install URL** (`/v0.1.0/install.sh`) instead of `/main/install.sh`; tags are conventionally immutable so the user knows what version they're running.
+- **README banner** above-the-fold warns that `bypassPermissions` is the default and the Telegram chat is effectively a remote shell — pair only with trusted accounts.
+- `.env` parser is now line-by-line instead of `source`-ing — values containing shell-special chars (parens, backticks, `$`) no longer crash the loader. (Real bug we hit during dogfooding when apt's "Setting up nodejs (22.22.2-1nodesource1)" got captured into a token field by buffered curl-pipe stdin.)
 - claudeclaw runs in `--permission-mode bypassPermissions` by default (documented in README Gotchas). Reasonable for personal use, not what you'd ship to production unaudited.
 
 ### Known limitations
