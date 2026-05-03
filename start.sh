@@ -10,6 +10,8 @@
 #   claudeclaw logs [-f]      # tail .telegram/stream.log.
 #   claudeclaw update         # git pull + reinstall plugin if changed.
 #   claudeclaw doctor         # diagnostic: deps, auth, tokens, network.
+#   claudeclaw disconnect <channel>  # clear bot token + pairing for a channel.
+#                                    # Supported channels: telegram
 #   claudeclaw uninstall      # remove the ~/.local/bin/claudeclaw symlink.
 #   claudeclaw uninstall --purge  # also delete the cloned repo.
 #   claudeclaw version        # print version.
@@ -246,6 +248,100 @@ cmd_doctor() {
   [ "$fail" -gt 0 ] && return 1 || return 0
 }
 
+# --- Channel registry ----------------------------------------------------
+# Each supported channel has a `disconnect_<channel>` function. To add
+# another channel later, register it here and implement the function.
+SUPPORTED_CHANNELS="telegram"
+
+disconnect_telegram() {
+  echo "→ Disconnecting Telegram channel..."
+
+  # 1. Stop running session.
+  if command -v tmux >/dev/null 2>&1 && tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+    tmux kill-session -t "$TMUX_SESSION"
+    echo "  ✓ stopped tmux session"
+  fi
+
+  # 2. Strip TELEGRAM_BOT_TOKEN from .env (preserve other lines like CLAUDE_CODE_OAUTH_TOKEN).
+  if [ -f "$ENV_FILE" ] && grep -q "^TELEGRAM_BOT_TOKEN=" "$ENV_FILE"; then
+    sed -i.bak "/^TELEGRAM_BOT_TOKEN=/d" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
+    echo "  ✓ removed TELEGRAM_BOT_TOKEN from .env"
+  fi
+
+  # 3. Reset access.json to defaults — wipe pairings + pending codes.
+  if [ -f "$ACCESS_FILE" ]; then
+    cat > "$ACCESS_FILE" <<'EOF'
+{
+  "dmPolicy": "pairing",
+  "allowFrom": [],
+  "groups": {},
+  "pending": {}
+}
+EOF
+    chmod 600 "$ACCESS_FILE"
+    echo "  ✓ reset $ACCESS_FILE"
+  fi
+
+  echo
+  echo "✔ Telegram disconnected. To reconnect, run: claudeclaw"
+  echo
+  echo "Note: this did NOT revoke the bot on Telegram's side. To fully"
+  echo "      revoke the bot token, DM @BotFather and run /revoke."
+}
+
+cmd_disconnect() {
+  local channel="${1:-}"
+  local force=false
+  shift 2>/dev/null || true
+  for arg in "$@"; do
+    case "$arg" in --force|-f) force=true ;; esac
+  done
+
+  if [ -z "$channel" ]; then
+    cat >&2 <<EOF
+ERROR: specify a channel.
+
+  Usage:  claudeclaw disconnect <channel>
+  Supported channels: $SUPPORTED_CHANNELS
+
+EOF
+    return 2
+  fi
+
+  case " $SUPPORTED_CHANNELS " in
+    *" $channel "*) ;;
+    *)
+      echo "ERROR: unknown channel '$channel'. Supported: $SUPPORTED_CHANNELS" >&2
+      return 2
+      ;;
+  esac
+
+  if [ "$force" != "true" ]; then
+    case "$channel" in
+      telegram)
+        cat <<EOF
+
+This will:
+  • Stop the running session (if any)
+  • Clear the Telegram bot token from .env
+  • Reset the Telegram pairing allowlist (.telegram/access.json)
+
+Note: this does NOT revoke the bot on Telegram's side. To do that,
+DM @BotFather and run /revoke.
+
+EOF
+        ;;
+    esac
+    read -r -p "Continue? [y/N]: " confirm
+    case "${confirm:-N}" in
+      [yY]|[yY][eE][sS]) ;;
+      *) echo "Cancelled."; return 0 ;;
+    esac
+  fi
+
+  "disconnect_${channel}"
+}
+
 cmd_uninstall() {
   local purge=false
   case "${1:-}" in --purge|-p) purge=true ;; esac
@@ -290,6 +386,7 @@ case "${1:-start}" in
   logs)             [ $# -gt 0 ] && shift; cmd_logs "$@"; exit $? ;;
   update)           cmd_update;   exit $? ;;
   doctor)           cmd_doctor;   exit $? ;;
+  disconnect)       [ $# -gt 0 ] && shift; cmd_disconnect "$@"; exit $? ;;
   uninstall)        [ $# -gt 0 ] && shift; cmd_uninstall "$@"; exit $? ;;
   version|--version|-v) cmd_version; exit 0 ;;
   help|--help|-h)   cmd_help;     exit 0 ;;
