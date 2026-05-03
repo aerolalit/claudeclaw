@@ -51,11 +51,34 @@ export TELEGRAM_STATE_DIR="$STATE_DIR"
 
 # --- Ensure Claude Code is installed and on PATH ---
 if ! command -v claude >/dev/null 2>&1; then
-  echo "ERROR: 'claude' not found on PATH." >&2
-  echo "  Install Claude Code: https://docs.anthropic.com/claude-code" >&2
-  echo "  Then sign in with:   claude login" >&2
-  echo "  (claudeclaw needs a Claude.ai login — Pro / Max / Team — to use channels.)" >&2
-  exit 1
+  echo "Claude Code ('claude') not found on PATH."
+  echo "  This script can install it from https://claude.ai/install.sh"
+  read -r -p "Install now? [Y/n] " reply
+  case "${reply:-Y}" in
+    [Nn]*)
+      echo "Aborting. Install manually: curl -fsSL https://claude.ai/install.sh | bash"
+      exit 1
+      ;;
+  esac
+  curl -fsSL https://claude.ai/install.sh | bash || {
+    echo "ERROR: install failed." >&2
+    echo "  Try manually: curl -fsSL https://claude.ai/install.sh | bash" >&2
+    exit 1
+  }
+  # Pick up the freshly installed binary in this script's PATH.
+  for p in "$HOME/.local/bin" "$HOME/bin" "/usr/local/bin"; do
+    [ -x "$p/claude" ] && export PATH="$p:$PATH" && break
+  done
+  if ! command -v claude >/dev/null 2>&1; then
+    echo "ERROR: claude installed but not found on PATH." >&2
+    echo "  Open a new shell (so .bashrc loads) and re-run ./start.sh" >&2
+    exit 1
+  fi
+  echo
+  echo "Claude Code installed. Sign in now:"
+  echo "  claude login"
+  echo "Then re-run ./start.sh."
+  exit 0
 fi
 
 # --- Ensure plugin dependencies are installed ---
