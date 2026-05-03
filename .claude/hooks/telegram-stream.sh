@@ -8,7 +8,16 @@
 # logs to stream.log and exits 0.
 
 set -u
-TG_STATE_DIR="${TELEGRAM_STATE_DIR:-$HOME/.claude/channels/telegram}"
+# Prefer the repo-local state dir when this hook is running inside a
+# claudeclaw checkout (start.sh writes there). Fall back to the global
+# ~/.claude/channels/telegram only when no repo-local dir exists.
+if [ -n "${TELEGRAM_STATE_DIR:-}" ]; then
+  TG_STATE_DIR="$TELEGRAM_STATE_DIR"
+elif [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -d "$CLAUDE_PROJECT_DIR/.telegram" ]; then
+  TG_STATE_DIR="$CLAUDE_PROJECT_DIR/.telegram"
+else
+  TG_STATE_DIR="$HOME/.claude/channels/telegram"
+fi
 mkdir -p "$TG_STATE_DIR" 2>/dev/null || true
 exec 2>>"$TG_STATE_DIR/stream.log"
 
@@ -182,10 +191,12 @@ BUFFER=$(jq -r '.buffer // ""' "$STATE_FILE")
 # MSG_ID may be empty on first qualifying tool call — we lazy-create below.
 
 # --- Per-chat streaming toggle (via /stream off in Telegram). Default: enabled. ---
+# Note: use raw .enabled rather than `.enabled // true` — jq's // treats false
+# as falsy and returns the right-hand side, so `false // true` evaluates to true.
 STREAM_SETTINGS_FILE="$TG_STATE_DIR/stream_settings.json"
 if [ -f "$STREAM_SETTINGS_FILE" ]; then
-  ENABLED=$(jq -r --arg cid "$CHAT_ID" '.[$cid].enabled // true' "$STREAM_SETTINGS_FILE" 2>/dev/null)
-  if [ "$ENABLED" = "false" ]; then exit 0; fi
+  RAW_ENABLED=$(jq -r --arg cid "$CHAT_ID" '.[$cid].enabled' "$STREAM_SETTINGS_FILE" 2>/dev/null)
+  if [ "$RAW_ENABLED" = "false" ]; then exit 0; fi
 fi
 
 # --- Build the new line based on event ---

@@ -19,7 +19,16 @@
 # the call unchanged. Bails on parse failure too — never blocks the agent.
 
 set -u
-TG_STATE_DIR="${TELEGRAM_STATE_DIR:-$HOME/.claude/channels/telegram}"
+# Prefer the repo-local state dir when running inside a claudeclaw checkout
+# (start.sh writes there). Fall back to the global ~/.claude/channels/telegram
+# only when no repo-local dir exists.
+if [ -n "${TELEGRAM_STATE_DIR:-}" ]; then
+  TG_STATE_DIR="$TELEGRAM_STATE_DIR"
+elif [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -d "$CLAUDE_PROJECT_DIR/.telegram" ]; then
+  TG_STATE_DIR="$CLAUDE_PROJECT_DIR/.telegram"
+else
+  TG_STATE_DIR="$HOME/.claude/channels/telegram"
+fi
 mkdir -p "$TG_STATE_DIR" 2>/dev/null || true
 exec 2>>"$TG_STATE_DIR/stream.log"
 
