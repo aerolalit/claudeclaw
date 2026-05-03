@@ -12,6 +12,8 @@
 #   claudeclaw doctor         # diagnostic: deps, auth, tokens, network.
 #   claudeclaw disconnect <channel>  # clear bot token + pairing for a channel.
 #                                    # Supported channels: telegram
+#   claudeclaw daemon         # non-interactive launch for systemd / boot scripts.
+#                             # Use only when setup is already complete.
 #   claudeclaw uninstall      # remove the ~/.local/bin/claudeclaw symlink.
 #   claudeclaw uninstall --purge  # also delete the cloned repo.
 #   claudeclaw version        # print version.
@@ -347,6 +349,54 @@ EOF
   "disconnect_${channel}"
 }
 
+# Non-interactive launch for systemd / boot scripts. Skips all setup
+# prompts, assumes setup is already done (env, plugin, pairing). Spawns
+# claude inside a detached tmux session, auto-answers the dev-channels
+# TUI confirmation, then blocks until the tmux session ends.
+#
+# systemd unit: ~/.config/systemd/user/claudeclaw.service should run
+#   ExecStart=%h/.local/bin/claudeclaw daemon
+cmd_daemon() {
+  if ! command -v tmux >/dev/null 2>&1; then
+    echo "ERROR: tmux not installed. apt install -y tmux." >&2
+    exit 1
+  fi
+
+  if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+    echo "$(date -Iseconds) tmux session $TMUX_SESSION already running — keeping alive"
+    while tmux has-session -t "$TMUX_SESSION" 2>/dev/null; do sleep 30; done
+    echo "$(date -Iseconds) tmux session ended — exiting"
+    return 0
+  fi
+
+  echo "$(date -Iseconds) starting claudeclaw in detached tmux..."
+
+  # Spawn claude in a detached tmux session. Same launch flags as the
+  # interactive default-flow path — single source of truth.
+  tmux new-session -d -s "$TMUX_SESSION" -c "$REPO_ROOT" \
+    "claude --dangerously-load-development-channels plugin:${PLUGIN_REF} --permission-mode bypassPermissions --setting-sources user,project,local"
+
+  # Wait for the dev-channels confirmation TUI to appear, then press Enter.
+  # Detected by sniffing the tmux pane content; up to 20s timeout.
+  echo "waiting for dev-channels TUI confirmation..."
+  for i in $(seq 1 20); do
+    if tmux capture-pane -t "$TMUX_SESSION" -p 2>/dev/null | grep -q "WARNING: Loading development channels\|local development"; then
+      echo "  detected at +${i}s, sending Enter"
+      tmux send-keys -t "$TMUX_SESSION" Enter
+      break
+    fi
+    sleep 1
+  done
+
+  echo "$(date -Iseconds) claudeclaw daemon ready"
+
+  # Block until the tmux session disappears. systemd treats us as 'active'
+  # while we're running. If the inner claude process dies, tmux exits, our
+  # while-loop exits, and systemd will Restart= us per the unit config.
+  while tmux has-session -t "$TMUX_SESSION" 2>/dev/null; do sleep 30; done
+  echo "$(date -Iseconds) tmux session ended — exiting"
+}
+
 cmd_uninstall() {
   local purge=false
   case "${1:-}" in --purge|-p) purge=true ;; esac
@@ -392,6 +442,7 @@ case "${1:-start}" in
   update)           cmd_update;   exit $? ;;
   doctor)           cmd_doctor;   exit $? ;;
   disconnect)       [ $# -gt 0 ] && shift; cmd_disconnect "$@"; exit $? ;;
+  daemon)           cmd_daemon; exit $? ;;
   uninstall)        [ $# -gt 0 ] && shift; cmd_uninstall "$@"; exit $? ;;
   version|--version|-v) cmd_version; exit 0 ;;
   help|--help|-h)   cmd_help;     exit 0 ;;
