@@ -113,6 +113,28 @@ Most things live in `profile/SOUL.md`:
 
 Per-user behaviour belongs in `profile/USER.md`. Cross-cutting filters (strip secrets, append signature, etc.) belong as `PreToolUse` hooks on `mcp__plugin_telegram_telegram__reply` in `.claude/settings.json` — the existing `telegram-reply-format.sh` is the model.
 
+## Running on a server (Pi, VPS, etc.)
+
+Claude Code is interactive — it must be attached to a TTY. To keep claudeclaw running after you close the SSH session, wrap it in `tmux` on the server:
+
+```bash
+# install tmux once: sudo apt install -y tmux  (Linux)  or  brew install tmux  (Mac)
+
+ssh user@server
+tmux new -s claudeclaw 'cd ~/claudeclaw && ./start.sh'
+# the dev-channels prompt appears once — press Enter to confirm
+# then detach with: Ctrl+B then D
+# now back in your shell; close terminal — Claude keeps running
+
+# tomorrow:
+ssh user@server
+tmux attach -t claudeclaw
+```
+
+The dev-channels confirmation prompt fires every time `claude --dangerously-load-development-channels` is launched (Anthropic gates it deliberately while the channel system is in research preview). Inside tmux it's a one-time annoyance — Claude stays running, you only see the prompt on the first launch and after each restart.
+
+For boot-time autostart, add a systemd user service (Linux) or launchd plist (macOS) that runs `tmux new-session -d -s claudeclaw 'cd ~/claudeclaw && ./start.sh'` on login.
+
 ## Stopping the heartbeat
 
 Tell the agent "stop the heartbeat" in any session — it cancels the cron job. The loop is session-only (in-memory cron); it dies when Claude Code exits regardless.
