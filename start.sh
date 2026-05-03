@@ -2,19 +2,31 @@
 # start.sh — bootstrap and launch the Telegram-channel session.
 #
 # Usage:
-#   ./start.sh              # interactive, Telegram + bypass permissions
-#   ./start.sh --no-tg      # plain interactive, no channel
+#   ./start.sh                # interactive setup, then ask foreground/detached
+#   ./start.sh --foreground   # skip the run-mode prompt, run in foreground
+#   ./start.sh --detached     # skip the prompt, fork into background
+#   ./start.sh --no-tg        # plain interactive, no channel
+#   ./start.sh --stop         # stop a detached instance
+#   ./start.sh --status       # show whether a detached instance is running
 #
-# First run does:
-#   1. Install plugin npm deps.
-#   2. Register the local "claudeclaw" plugin marketplace.
-#   3. Install the telegram plugin from that marketplace.
-#   4. Prompt for TELEGRAM_BOT_TOKEN if not set; save to .env (gitignored).
-#   5. If no Telegram allowlist entries exist, run the pairing flow:
-#      start the bot standalone, prompt the user to DM it, capture the
-#      6-char pairing code from stdin, write the senderId to allowFrom.
+# First run does (all foreground, interactive):
+#   1. Install Claude Code (if missing) via the official installer.
+#   2. Walk through auth (interactive token paste for headless setups).
+#   3. Install plugin npm deps.
+#   4. Register the local "claudeclaw" plugin marketplace.
+#   5. Install the telegram plugin from that marketplace.
+#   6. Prompt for TELEGRAM_BOT_TOKEN; save to .env (chmod 600, gitignored).
+#   7. If no Telegram allowlist entries exist, run the pairing flow.
 #
 # Subsequent runs detect prior setup and skip these steps.
+#
+# Run modes:
+#   foreground — Claude runs attached to the terminal. Ctrl+C stops it.
+#                Best for development / testing. Closes if the SSH
+#                session disconnects.
+#   detached   — Claude forks into the background via setsid (POSIX).
+#                Survives SSH disconnect. PID at .telegram/claudeclaw.pid,
+#                stdout at .telegram/claudeclaw.log.
 #
 # To pick up local edits to plugins/telegram/server.ts, run inside Claude:
 #   /plugin marketplace update claudeclaw
@@ -33,10 +45,58 @@ ENV_FILE="$REPO_ROOT/.env"
 # Picked up by the plugin via TELEGRAM_STATE_DIR (see server.ts).
 STATE_DIR="$REPO_ROOT/.telegram"
 ACCESS_FILE="$STATE_DIR/access.json"
+PID_FILE="$STATE_DIR/claudeclaw.pid"
+LOG_FILE="$STATE_DIR/claudeclaw.log"
 PAIRING_TIMEOUT=180  # seconds to wait for user to DM the bot
 
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR" 2>/dev/null || true
+
+# --- Parse flags / handle --stop / --status / mode override ---
+RUN_MODE=""        # "" = ask, "foreground", "detached"
+NO_TG=false
+for arg in "$@"; do
+  case "$arg" in
+    --foreground) RUN_MODE="foreground" ;;
+    --detached)   RUN_MODE="detached" ;;
+    --no-tg)      NO_TG=true ;;
+    --stop)
+      if [ -f "$PID_FILE" ]; then
+        pid=$(cat "$PID_FILE")
+        if kill -0 "$pid" 2>/dev/null; then
+          kill "$pid" && echo "stopped PID $pid" || echo "kill failed" >&2
+        else
+          echo "no running process at PID $pid (stale pid file)"
+        fi
+        rm -f "$PID_FILE"
+      else
+        echo "not running (no $PID_FILE)"
+      fi
+      exit 0
+      ;;
+    --status)
+      if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+        echo "running, PID $(cat "$PID_FILE")"
+        echo "  log: $LOG_FILE"
+      else
+        echo "not running"
+        [ -f "$PID_FILE" ] && rm -f "$PID_FILE"
+      fi
+      exit 0
+      ;;
+    --help|-h)
+      sed -n '/^# start\.sh/,/^$/p' "$0" | sed 's/^# \?//'
+      exit 0
+      ;;
+  esac
+done
+
+# If detached mode requested but already running, refuse.
+if [ "$RUN_MODE" = "detached" ] && [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+  echo "ERROR: claudeclaw already running (PID $(cat "$PID_FILE"))" >&2
+  echo "  stop it first:  ./start.sh --stop" >&2
+  exit 1
+fi
 
 # --- Load repo-local .env if present ---
 if [ -f "$ENV_FILE" ]; then
@@ -195,7 +255,7 @@ if ! claude plugin list 2>/dev/null | grep -qE "^[[:space:]]*[❯>][[:space:]]+$
 fi
 
 # --- Skip Telegram setup if --no-tg ---
-if [ "${1:-}" = "--no-tg" ]; then
+if [ "$NO_TG" = "true" ]; then
   cd "$REPO_ROOT" && exec claude
 fi
 
@@ -319,8 +379,54 @@ if [ "$needs_pairing" = true ]; then
   sleep 1
 fi
 
-# --- Launch ---
-cd "$REPO_ROOT" && exec claude \
-  --dangerously-load-development-channels "plugin:${PLUGIN_REF}" \
-  --permission-mode bypassPermissions \
+# --- Choose run mode (foreground vs detached) if not set by flag ---
+if [ -z "$RUN_MODE" ]; then
+  cat <<'EOF'
+
+How would you like to run claudeclaw?
+
+  [1] Foreground (default) — runs in this terminal, Ctrl+C to stop.
+                              Best for development and watching live output.
+  [2] Detached              — runs in the background, returns to your prompt.
+                              Survives SSH disconnect. Manage with:
+                                ./start.sh --status
+                                ./start.sh --stop
+
+EOF
+  read -r -p "Choice [1/2] (default 1): " mode_choice
+  case "${mode_choice:-1}" in
+    2|d|D|detached)   RUN_MODE="detached" ;;
+    *)                RUN_MODE="foreground" ;;
+  esac
+fi
+
+# --- Build the claude command ---
+CLAUDE_ARGS=(
+  --dangerously-load-development-channels "plugin:${PLUGIN_REF}"
+  --permission-mode bypassPermissions
   --setting-sources user,project,local
+)
+
+cd "$REPO_ROOT"
+
+if [ "$RUN_MODE" = "detached" ]; then
+  # POSIX-portable backgrounding: setsid (preferred, breaks from controlling
+  # terminal so SIGHUP doesn't reach the child), fall back to nohup + disown.
+  : > "$LOG_FILE"
+  if command -v setsid >/dev/null 2>&1; then
+    setsid claude "${CLAUDE_ARGS[@]}" </dev/null >>"$LOG_FILE" 2>&1 &
+  else
+    nohup claude "${CLAUDE_ARGS[@]}" </dev/null >>"$LOG_FILE" 2>&1 &
+    disown 2>/dev/null || true
+  fi
+  echo "$!" > "$PID_FILE"
+  echo
+  echo "✔ claudeclaw running detached. PID $(cat "$PID_FILE")"
+  echo "  log:    tail -f $LOG_FILE"
+  echo "  status: ./start.sh --status"
+  echo "  stop:   ./start.sh --stop"
+  exit 0
+fi
+
+# Foreground: replace this shell with claude. Ctrl+C cleanly terminates it.
+exec claude "${CLAUDE_ARGS[@]}"
