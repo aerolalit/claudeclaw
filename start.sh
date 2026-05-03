@@ -428,7 +428,9 @@ Generate a long-lived auth token from any machine with a browser:
  login`, then re-run claudeclaw.)
 
 EOF
-  read -r -p "Paste the setup-token here: " setup_token
+  # Silent input — token doesn't echo, doesn't land in scrollback or session logs.
+  read -rs -p "Paste the setup-token here (input hidden): " setup_token
+  echo  # newline after silent read so the next message starts on its own line
   setup_token="$(echo "$setup_token" | tr -d '[:space:]')"
   if [ -z "$setup_token" ]; then
     echo "ERROR: no token provided" >&2
@@ -502,7 +504,9 @@ if [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
   echo "Telegram bot token not configured."
   echo "  Get one from @BotFather on Telegram (/newbot)."
   echo
-  read -r -p "Paste your bot token: " TELEGRAM_BOT_TOKEN
+  # Silent input — token doesn't echo, doesn't land in scrollback or session logs.
+  read -rs -p "Paste your bot token (input hidden): " TELEGRAM_BOT_TOKEN
+  echo
   if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
     echo "ERROR: no token provided" >&2
     exit 1

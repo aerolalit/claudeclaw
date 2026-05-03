@@ -8,6 +8,8 @@ If you've used [OpenClaw](https://github.com/openclaw/openclaw) and liked the mo
 
 ![claudeclaw demo](assets/demo.gif)
 
+> **Security note.** claudeclaw runs Claude Code in `bypassPermissions` mode by default — meaning Telegram messages from anyone on your pairing allowlist can ask the agent to run arbitrary shell commands. **The Telegram chat IS a remote shell to your host.** Pair only with accounts you fully trust. See [SECURITY.md](SECURITY.md) for the threat model and hardening guide.
+
 ## What you get
 
 - **Conversational onboarding.** First launch, the agent asks who you are, who *it* is, how it should communicate. No config files to hand-edit.
@@ -24,7 +26,13 @@ If you've used [OpenClaw](https://github.com/openclaw/openclaw) and liked the mo
 
 ## Quickstart
 
-One line:
+One line — pinned to a release tag (the safest way to use a `curl | bash` installer):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aerolalit/claudeclaw/v0.1.0/install.sh | bash
+```
+
+Or the rolling `main` URL (auto-updates with new releases, but trusts whatever is on `main` today):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/aerolalit/claudeclaw/main/install.sh | bash
