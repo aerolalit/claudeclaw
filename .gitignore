@@ -16,6 +16,8 @@
 
 # --- Top-level files ---
 !CLAUDE.md
+!CHANGELOG.md
+!CONTRIBUTING.md
 !LICENSE
 !README.md
 !install.sh
