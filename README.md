@@ -22,24 +22,37 @@ If you've used [OpenClaw](https://github.com/openclaw/openclaw) and liked the mo
 
 ## Quickstart
 
+One line:
+
 ```bash
-git clone https://github.com/aerolalit/claudeclaw my-workspace
-cd my-workspace
+curl -fsSL https://raw.githubusercontent.com/aerolalit/claudeclaw/main/install.sh | bash
+```
+
+This installs prereqs (git, node) if missing, clones the repo to `~/claudeclaw`, and hands off to `./start.sh`. To install elsewhere: `CLAUDECLAW_DIR=/custom/path curl -fsSL ... | bash`.
+
+Or do it manually:
+
+```bash
+git clone https://github.com/aerolalit/claudeclaw ~/claudeclaw
+cd ~/claudeclaw
 ./start.sh
 ```
 
-`start.sh` does everything on first run:
+`start.sh` does everything else on first run:
 
-1. Installs the Telegram plugin's npm dependencies.
-2. Registers the local `claudeclaw` plugin marketplace with Claude Code.
-3. Installs the bundled Telegram plugin from that marketplace.
-4. Prompts you for a Telegram bot token (get one from [@BotFather](https://t.me/BotFather) → `/newbot`) and saves it to a gitignored `.env`.
-5. Spins up the bot, asks you to DM it once, captures the pairing code from your reply, and writes you to the allowlist.
-6. Launches Claude Code with the channel active.
+1. Installs Claude Code if missing (`claude.ai/install.sh`).
+2. Walks you through auth — interactive paste of a setup-token for headless servers, or `claude login` on desktop.
+3. Installs the Telegram plugin's npm dependencies.
+4. Registers the local `claudeclaw` plugin marketplace with Claude Code.
+5. Installs the bundled Telegram plugin from that marketplace.
+6. Prompts for a Telegram bot token (get one from [@BotFather](https://t.me/BotFather) → `/newbot`) and saves it to a gitignored `.env`.
+7. Spins up the bot, asks you to DM it once, captures the pairing code from your reply, and writes you to the allowlist.
+8. Offers to wrap the launch in tmux so it survives terminal close (default yes).
+9. Launches Claude Code with the channel active.
 
 Then send any message in Claude (e.g. `hi`). The interview kicks in, you answer a few questions, and the workspace is ready.
 
-Subsequent runs skip every setup step — straight to launch.
+Subsequent runs skip every setup step — straight to launch (or reattach to an existing tmux session).
 
 To launch without the Telegram bridge: `./start.sh --no-tg`.
 
