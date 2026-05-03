@@ -98,30 +98,60 @@ fi
 
 echo
 echo "✔ claudeclaw installed at $INSTALL_DIR"
-echo "→ launching ./start.sh..."
-echo
+
+# --- Install the `claudeclaw` shim into ~/.local/bin ---
+BIN_DIR="$HOME/.local/bin"
+SHIM="$BIN_DIR/claudeclaw"
+mkdir -p "$BIN_DIR"
+ln -sf "$INSTALL_DIR/start.sh" "$SHIM"
+echo "✔ installed 'claudeclaw' command at $SHIM"
+
+# --- Help users whose shell doesn't have ~/.local/bin on PATH ---
+PATH_HINT=""
+case ":$PATH:" in
+  *":$BIN_DIR:"*)
+    : # already on PATH
+    ;;
+  *)
+    # Pick the right rc file based on shell.
+    rc_file="$HOME/.bashrc"
+    case "${SHELL:-}" in
+      */zsh) rc_file="$HOME/.zshrc" ;;
+      */fish) rc_file="$HOME/.config/fish/config.fish" ;;
+    esac
+    PATH_HINT="$rc_file"
+    ;;
+esac
 
 cd "$INSTALL_DIR"
 
-# When this script is run via `curl ... | bash`, stdin is the curl pipe
-# (closed by the time we get here) and trying to drive interactive
-# prompts is fragile across shells/distros. The honest move: if we're
-# running non-interactively, install completed cleanly — just tell the
-# user the next command and exit. They run it from a real terminal
-# where stdin/stdout are sane.
+# Tell the user the next step. When piped from curl, stdin is closed,
+# so we can't run start.sh interactively here — they kick it off
+# themselves. Either way they end up with a working `claudeclaw` command.
+echo
+echo "─────────────────────────────────────────────────────────────────"
+echo " Next: start a session"
+echo "─────────────────────────────────────────────────────────────────"
+if [ -n "$PATH_HINT" ]; then
+  echo
+  echo " First add ~/.local/bin to PATH (one-time):"
+  echo "   echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> $PATH_HINT"
+  echo "   source $PATH_HINT"
+  echo
+fi
+echo " Then run:"
+echo
+echo "   claudeclaw"
+echo
+echo " (Or once: cd $INSTALL_DIR && ./start.sh)"
+echo
+echo " It walks you through Claude Code auth, plugin install,"
+echo " bot token, and Telegram pairing — then keeps the session"
+echo " running in tmux so it survives terminal close."
+echo "─────────────────────────────────────────────────────────────────"
+
+# If this is an interactive shell (not curl-piped), launch immediately.
 if [ -t 0 ]; then
-  # Real TTY: drive the rest of setup directly.
+  echo
   exec ./start.sh
-else
-  cat <<EOF
-─────────────────────────────────────────────────────────────────
-Next: open a terminal in $INSTALL_DIR and run setup interactively:
-
-  cd $INSTALL_DIR
-  ./start.sh
-
-start.sh will walk you through Claude Code auth, plugin install,
-bot token, and Telegram pairing.
-─────────────────────────────────────────────────────────────────
-EOF
 fi
