@@ -1416,15 +1416,13 @@ void (async () => {
       // bot.stop() mid-setup rejects with grammy's "Aborted delay" — expected, not an error.
       if (err instanceof Error && err.message === 'Aborted delay') return
       const is409 = err instanceof GrammyError && err.error_code === 409
-      if (is409 && attempt >= 8) {
-        process.stderr.write(
-          `telegram channel: 409 Conflict persists after ${attempt} attempts — ` +
-          `another poller is holding the bot token (stray 'bun server.ts' process or a second session). Exiting.\n`,
-        )
-        // Exit with non-zero so Claude Code knows this is a failure and restarts the plugin.
-        process.exit(1)
-      }
-      const delay = Math.min(1000 * attempt, 15000)
+      // Never give up on 409 — the pre-startup eviction should clear stale pollers
+      // quickly, and Claude Code doesn't auto-restart development channel plugins
+      // anyway. Cap at 90 s (Telegram's long-poll timeout) so we recover as soon
+      // as the other session's poll expires naturally.
+      const delay = is409
+        ? Math.min(5000 * attempt, 90000)
+        : Math.min(1000 * attempt, 15000)
       const detail = is409
         ? `409 Conflict${attempt === 1 ? ' — another instance is polling (zombie session, or a second Claude Code running?)' : ''}`
         : `polling error: ${err}`
