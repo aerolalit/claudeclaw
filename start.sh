@@ -166,10 +166,28 @@ cmd_status() {
 cmd_stop() {
   if ! command -v tmux >/dev/null 2>&1 || ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
     echo "Not running."
+    _kill_stale_bot
     return 0
   fi
   tmux kill-session -t "$TMUX_SESSION"
   echo "✔ stopped (killed tmux session: $TMUX_SESSION)"
+  _kill_stale_bot
+}
+
+# Kill any bot process recorded in bot.pid, then wait for Telegram to release
+# the long-poll connection (avoids 409 Conflict on rapid restart).
+_kill_stale_bot() {
+  local pid_file="$STATE_DIR/bot.pid"
+  local old_pid=""
+  [ -f "$pid_file" ] && old_pid=$(cat "$pid_file" 2>/dev/null)
+  if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+    echo "  killing stale bot (PID $old_pid)..."
+    kill "$old_pid" 2>/dev/null || true
+  fi
+  rm -f "$pid_file"
+  # Give Telegram ~2 s to release the long-poll connection before we allow
+  # a new bot to start — prevents 409 Conflict on rapid restart.
+  sleep 2
 }
 
 cmd_restart() {
@@ -770,6 +788,9 @@ EOF
       ;;
   esac
 fi
+
+# --- Kill any stale bot before launching (prevents 409 Conflict) ---
+_kill_stale_bot
 
 # --- Launch (foreground, attached to terminal or tmux session) ---
 cd "$REPO_ROOT" && exec claude \

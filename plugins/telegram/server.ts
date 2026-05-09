@@ -71,6 +71,21 @@ try {
 } catch {}
 writeFileSync(PID_FILE, String(process.pid))
 
+// Evict any external stale long-poll (e.g. a session on another machine)
+// by making a zero-timeout getUpdates call. This forces Telegram to drop
+// any in-flight long-poll connection before we start our own, preventing 409.
+if (process.env.TELEGRAM_BOT_TOKEN) {
+  try {
+    await fetch(
+      `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getUpdates?timeout=0&limit=1`,
+      { signal: AbortSignal.timeout(5000) },
+    )
+    process.stderr.write('telegram channel: evicted any stale long-poll\n')
+  } catch {
+    // Non-fatal — polling will surface any real errors.
+  }
+}
+
 // Last-resort safety net — without these the process dies silently on any
 // unhandled promise rejection. With them it logs and keeps serving tools.
 process.on('unhandledRejection', err => {
@@ -1406,7 +1421,8 @@ void (async () => {
           `telegram channel: 409 Conflict persists after ${attempt} attempts — ` +
           `another poller is holding the bot token (stray 'bun server.ts' process or a second session). Exiting.\n`,
         )
-        return
+        // Exit with non-zero so Claude Code knows this is a failure and restarts the plugin.
+        process.exit(1)
       }
       const delay = Math.min(1000 * attempt, 15000)
       const detail = is409
