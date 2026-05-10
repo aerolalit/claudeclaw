@@ -123,6 +123,8 @@ Also write the chat_id to `$CLAUDE_PROJECT_DIR/.telegram/last_chat.txt` when han
 
 Heartbeat ticks are NOT Telegram messages — they fire from the cron loop. The hook filters out heartbeat sub-agent tool calls automatically. However: if the heartbeat sub-agent returns ANYTHING other than `HEARTBEAT_OK`, forward the alert text to Telegram via the `reply` tool, using the chat_id from `last_chat.txt`. If the cache file doesn't exist, just surface the alert in the main session and skip Telegram.
 
+**Always spawn the heartbeat agent with `run_in_background: true`** so the main session stays responsive to Telegram messages while the check runs. When the background agent completes and returns something other than `HEARTBEAT_OK`, forward the alert to Telegram then.
+
 ## Manually inspecting / cancelling the loop
 
 The active cron job ID is shown when the loop is armed; ask to "stop the heartbeat" or "show heartbeat status" to manage it.
