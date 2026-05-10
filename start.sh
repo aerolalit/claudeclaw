@@ -87,7 +87,8 @@ ENV_FILE="$REPO_ROOT/.env"
 # Picked up by the plugin via TELEGRAM_STATE_DIR (see server.ts).
 STATE_DIR="$REPO_ROOT/.telegram"
 ACCESS_FILE="$STATE_DIR/access.json"
-TMUX_SESSION="claudeclaw"
+TMUX_SESSION="claudeclaw-$(basename "$REPO_ROOT")"
+export CLAUDECLAW_TMUX_SESSION="$TMUX_SESSION"
 PAIRING_TIMEOUT=180  # seconds to wait for user to DM the bot
 
 mkdir -p "$STATE_DIR"
