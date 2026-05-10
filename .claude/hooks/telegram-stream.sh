@@ -205,9 +205,13 @@ if [ -f "$STREAM_SETTINGS_FILE" ]; then
 fi
 
 # --- Build the new line based on event ---
+PRE_HEADER="🔄 ${EMOJI} ${TOOL}"
+POST_HEADER="✅ ${EMOJI} ${TOOL}"
+DESC_LINE="<pre>${INPUT_DESC_ESC}</pre>"
+
 if [ "$EVENT" = "PreToolUse" ]; then
-  NEW_LINE="🔄 ${EMOJI} ${TOOL}(<code>${INPUT_DESC_ESC}</code>)"
-  # Append to buffer
+  NEW_LINE="${PRE_HEADER}
+${DESC_LINE}"
   if [ -n "$BUFFER" ]; then
     NEW_BUFFER="${BUFFER}
 ${NEW_LINE}"
@@ -215,17 +219,25 @@ ${NEW_LINE}"
     NEW_BUFFER="$NEW_LINE"
   fi
 elif [ "$EVENT" = "PostToolUse" ]; then
-  RESPONSE_JSON=$(echo "$INPUT" | jq -c '.tool_response // {}')
-  OUT_DESC=$(format_output "$TOOL" "$RESPONSE_JSON")
-  OUT_DESC_ESC=$(html_escape "$OUT_DESC")
-  NEW_LINE="✅ ${EMOJI} ${TOOL}(<code>${INPUT_DESC_ESC}</code>) → <code>${OUT_DESC_ESC}</code>"
-  # Replace last line (which should be the matching PreToolUse line)
-  NEW_BUFFER=$(echo "$BUFFER" | sed '$d')
-  if [ -n "$NEW_BUFFER" ]; then
-    NEW_BUFFER="${NEW_BUFFER}
-${NEW_LINE}"
-  else
-    NEW_BUFFER="$NEW_LINE"
+  # Find and replace the FIRST matching PreToolUse block (handles parallel calls correctly)
+  NEW_BUFFER=$(printf '%s\n' "$BUFFER" | awk \
+    -v pre="$PRE_HEADER" -v post="$POST_HEADER" -v desc="$DESC_LINE" \
+    'BEGIN { replaced=0; pending=0; held="" }
+     !replaced && !pending && $0 == pre { pending=1; held=$0; next }
+     pending && $0 == desc { print post; print desc; replaced=1; pending=0; next }
+     pending { print held; pending=0 }
+     { print }
+     END { if (pending) print held }')
+  # If no matching pre-line found, just append the post line
+  if [ "$NEW_BUFFER" = "$BUFFER" ] || [ -z "$NEW_BUFFER" ]; then
+    if [ -n "$BUFFER" ]; then
+      NEW_BUFFER="${BUFFER}
+${POST_HEADER}
+${DESC_LINE}"
+    else
+      NEW_BUFFER="${POST_HEADER}
+${DESC_LINE}"
+    fi
   fi
 else
   exit 0

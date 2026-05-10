@@ -741,53 +741,45 @@ if [ "$needs_pairing" = true ]; then
   sleep 1
 fi
 
-# --- Optional: wrap launch in tmux so it survives terminal close ---
-# Skip if we're already inside a tmux session (this is the re-exec from the
-# wrapper below, or the user runs from inside their own tmux).
-# (Existing-session collision is handled at script entry — we'd have either
-#  reattached or killed it before reaching here.)
+# --- Always launch inside tmux so it survives terminal close ---
+# Skip if already inside tmux (re-exec from wrapper, or user's own tmux).
 if [ -z "${TMUX:-}" ]; then
-  cat <<'EOF'
-
-Should claudeclaw keep running after you close this terminal?
-  [1] Yes — survives terminal close, SSH disconnect, etc.   [recommended]
-         (Uses a tool called "tmux" under the hood — auto-installs if needed.
-          Reattach later with: tmux attach -t claudeclaw)
-
-  [2] No  — runs only in this terminal. Closes when you close it.
-
-EOF
-  read -r -p "Choice [1/2] (default 1): " tmux_choice
-  case "${tmux_choice:-1}" in
-    1|y|Y|yes)
-      # Install tmux if missing.
-      if ! command -v tmux >/dev/null 2>&1; then
-        echo "tmux not installed — installing..."
-        if command -v apt-get >/dev/null 2>&1; then
-          sudo apt-get install -y tmux
-        elif command -v brew >/dev/null 2>&1; then
-          brew install tmux
-        elif command -v dnf >/dev/null 2>&1; then
-          sudo dnf install -y tmux
-        elif command -v pacman >/dev/null 2>&1; then
-          sudo pacman -S --noconfirm tmux
-        elif command -v apk >/dev/null 2>&1; then
-          sudo apk add tmux
-        else
-          echo "ERROR: no known package manager (apt/brew/dnf/pacman/apk)." >&2
-          echo "  Install tmux manually, then re-run ./start.sh." >&2
-          exit 1
-        fi
+  # Install tmux if missing.
+  if ! command -v tmux >/dev/null 2>&1; then
+    echo "tmux not installed — installing..."
+    if command -v apt-get >/dev/null 2>&1; then
+      sudo apt-get install -y tmux
+    elif command -v brew >/dev/null 2>&1; then
+      brew install tmux
+    elif command -v dnf >/dev/null 2>&1; then
+      sudo dnf install -y tmux
+    elif command -v pacman >/dev/null 2>&1; then
+      sudo pacman -S --noconfirm tmux
+    elif command -v apk >/dev/null 2>&1; then
+      sudo apk add tmux
+    else
+      echo "ERROR: no known package manager (apt/brew/dnf/pacman/apk)." >&2
+      echo "  Install tmux manually, then re-run ./start.sh." >&2
+      exit 1
+    fi
+  fi
+  echo "Launching inside tmux session '$TMUX_SESSION'."
+  echo "  Detach (leave running): Ctrl+B then D"
+  echo "  Reattach later:         claudeclaw attach"
+  tmux new-session -s "$TMUX_SESSION" -d "$0"
+  # Poll for the dev-channel confirmation prompt and auto-accept it.
+  # Tries every 0.5s for up to 30s; bails silently if prompt never appears.
+  (
+    for _ in $(seq 1 60); do
+      sleep 0.5
+      pane=$(tmux capture-pane -t "$TMUX_SESSION" -p 2>/dev/null || true)
+      if echo "$pane" | grep -qiE "trust|dangerous|development channel|Do you want to allow"; then
+        tmux send-keys -t "$TMUX_SESSION" "y" Enter
+        break
       fi
-      # Re-exec ourselves inside a new tmux session.
-      # The TMUX env var is now set inside that session, so this branch is skipped on the relaunch.
-      echo
-      echo "Launching inside tmux session '$TMUX_SESSION'."
-      echo "  Detach (leave running): Ctrl+B then D"
-      echo "  Reattach later:         tmux attach -t $TMUX_SESSION"
-      exec tmux new-session -s "$TMUX_SESSION" "$0"
-      ;;
-  esac
+    done
+  ) &
+  exec tmux attach-session -t "$TMUX_SESSION"
 fi
 
 # --- Kill any stale bot before launching (prevents 409 Conflict) ---
