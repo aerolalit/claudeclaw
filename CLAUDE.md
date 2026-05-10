@@ -115,30 +115,6 @@ Hooks run a digest sub-agent at end of every turn (Stop), before context compact
 
 If you do want to capture something explicitly, use `bin/vault write` or `bin/vault daily-append`. Always log it: `bin/vault log "[manual] saved wiki/<path>: <summary>"`.
 
-## GASP Knowledge Base
-
-For anything GASP-related (architecture, services, APIs, runbooks, specs, ADRs), use the dedicated KB vault at `/home/lalit/obsidian/gasp-kb/` — **not** `my-second-brain`.
-
-```
-gasp-kb/
-├── confluence/        ← raw Confluence mirror (don't hand-edit)
-└── wiki/
-    ├── index.md       ← entry point
-    ├── services/      ← one page per AI service (ConCrA, SaM, CV Maker, etc.)
-    ├── specs/         ← architecture + design docs
-    ├── adrs/          ← architecture decision records
-    ├── apis/          ← API contracts
-    ├── runbooks/      ← ops procedures
-    ├── concepts/      ← abstractions and patterns
-    └── glossary/      ← acronyms
-```
-
-Read files directly with the Read tool (e.g. `Read /home/lalit/obsidian/gasp-kb/wiki/index.md`) or grep across the vault. Start with `wiki/index.md` for an overview.
-
-`my-second-brain/wiki/projects/gasp/` holds career/strategy context (negotiation, team decisions) — separate from technical KB.
-
-Last sync: 2026-04-17. Run `/gasp:sync` then `/gasp:compile` to pull fresh Confluence pages.
-
 ## When responding to Telegram messages
 
 If the user message is a `<channel source="telegram" ...>` tag, the streaming UX is handled automatically by hooks. The `UserPromptSubmit` hook reacts 👀 and primes `.telegram/active.json`. The `PreToolUse`/`PostToolUse` hooks lazily create a progress message on the first non-Telegram tool call and edit-stream subsequent tools into it. The `Stop` hook deletes the progress message at turn end. You don't need to write `active.json` yourself.
