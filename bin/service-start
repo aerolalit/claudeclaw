@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Systemd launcher — starts the Claude Code tmux session and waits for it to exit
+# so systemd can track the lifetime and optionally restart.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SESSION="claudeclaw-$(basename "$REPO_ROOT")"
+
+# Kill any stale session so we start clean
+/usr/bin/tmux kill-session -t "$SESSION" 2>/dev/null || true
+
+# Start detached — start.sh will see $TMUX is set and skip its own tmux-wrap
+/usr/bin/tmux new-session -d -s "$SESSION" "$REPO_ROOT/start.sh"
+
+# Auto-accept the dev-channels confirmation prompt that claude shows on first
+# run or after an update. Without this the session hangs headlessly on boot.
+(
+  for _ in $(seq 1 60); do
+    sleep 1
+    pane=$(/usr/bin/tmux capture-pane -t "$SESSION" -p 2>/dev/null || true)
+    if echo "$pane" | grep -qiE "trust|dangerous|development channel|Do you want to allow"; then
+      /usr/bin/tmux send-keys -t "$SESSION" "y" Enter
+      break
+    fi
+  done
+) &
+
+# Wait until the session ends so systemd tracks us properly
+while /usr/bin/tmux has-session -t "$SESSION" 2>/dev/null; do
+    sleep 10
+done
