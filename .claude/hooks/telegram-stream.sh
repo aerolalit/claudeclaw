@@ -180,8 +180,13 @@ format_output() {
   esac
 }
 
+html_escape() {
+  printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'
+}
+
 EMOJI=$(emoji_for "$TOOL")
 INPUT_DESC=$(format_input "$TOOL" "$(echo "$INPUT" | jq -c '.tool_input // {}')")
+INPUT_DESC_ESC=$(html_escape "$INPUT_DESC")
 
 # --- Read current buffer + chat info ---
 CHAT_ID=$(jq -r '.chat_id // empty' "$STATE_FILE")
@@ -201,7 +206,7 @@ fi
 
 # --- Build the new line based on event ---
 if [ "$EVENT" = "PreToolUse" ]; then
-  NEW_LINE="🔄 ${EMOJI} ${TOOL}(${INPUT_DESC})"
+  NEW_LINE="🔄 ${EMOJI} ${TOOL}(<code>${INPUT_DESC_ESC}</code>)"
   # Append to buffer
   if [ -n "$BUFFER" ]; then
     NEW_BUFFER="${BUFFER}
@@ -212,7 +217,8 @@ ${NEW_LINE}"
 elif [ "$EVENT" = "PostToolUse" ]; then
   RESPONSE_JSON=$(echo "$INPUT" | jq -c '.tool_response // {}')
   OUT_DESC=$(format_output "$TOOL" "$RESPONSE_JSON")
-  NEW_LINE="✅ ${EMOJI} ${TOOL}(${INPUT_DESC}) → ${OUT_DESC}"
+  OUT_DESC_ESC=$(html_escape "$OUT_DESC")
+  NEW_LINE="✅ ${EMOJI} ${TOOL}(<code>${INPUT_DESC_ESC}</code>) → <code>${OUT_DESC_ESC}</code>"
   # Replace last line (which should be the matching PreToolUse line)
   NEW_BUFFER=$(echo "$BUFFER" | sed '$d')
   if [ -n "$NEW_BUFFER" ]; then
@@ -264,7 +270,7 @@ if [ "$SHOULD_SEND" = "true" ]; then
     RESP=$(curl -s -X POST \
       -H "Content-Type: application/json" \
       -d "$(jq -n --arg cid "$CHAT_ID" --arg txt "$NEW_BUFFER" \
-            '{chat_id: $cid, text: $txt}')" \
+            '{chat_id: $cid, text: $txt, parse_mode: "HTML"}')" \
       "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage")
     OK=$(echo "$RESP" | jq -r '.ok // false' 2>/dev/null)
     if [ "$OK" = "true" ]; then
@@ -282,7 +288,7 @@ if [ "$SHOULD_SEND" = "true" ]; then
     RESP=$(curl -s -X POST \
       -H "Content-Type: application/json" \
       -d "$(jq -n --arg cid "$CHAT_ID" --arg mid "$MSG_ID" --arg txt "$NEW_BUFFER" \
-            '{chat_id: $cid, message_id: ($mid|tonumber), text: $txt}')" \
+            '{chat_id: $cid, message_id: ($mid|tonumber), text: $txt, parse_mode: "HTML"}')" \
       "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText")
     OK=$(echo "$RESP" | jq -r '.ok // false' 2>/dev/null)
     if [ "$OK" != "true" ]; then
@@ -292,7 +298,7 @@ if [ "$SHOULD_SEND" = "true" ]; then
         curl -s -X POST \
           -H "Content-Type: application/json" \
           -d "$(jq -n --arg cid "$CHAT_ID" --arg mid "$MSG_ID" --arg txt "$NEW_BUFFER" \
-                '{chat_id: $cid, message_id: ($mid|tonumber), text: $txt}')" \
+                '{chat_id: $cid, message_id: ($mid|tonumber), text: $txt, parse_mode: "HTML"}')" \
           "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText" >/dev/null 2>&1 || true
       else
         echo "[$(date -Iseconds)] $EVENT $TOOL: $RESP" >> "$LOG_FILE"
