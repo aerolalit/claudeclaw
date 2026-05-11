@@ -8,7 +8,7 @@ If `profile/BOOTSTRAP.md` exists, **read it FIRST and run the interview conversa
 
 When the interview is complete:
 
-1. Update `profile/IDENTITY.md`, `profile/USER.md`, `profile/SOUL.md` (and optionally `profile/HEARTBEAT.md`) with what you learned.
+1. Update `profile/IDENTITY.md`, `profile/USER.md`, `profile/SOUL.md`, `profile/MEMORY.md` (and optionally `profile/HEARTBEAT.md`) with what you learned.
 2. Delete `profile/BOOTSTRAP.md` — its absence signals onboarding is done.
 3. Welcome the user to the workspace and tell them about the heartbeat loop.
 
@@ -19,6 +19,7 @@ If `profile/BOOTSTRAP.md` does not exist, skip straight to normal operation.
 - @profile/IDENTITY.md — who you are (name, vibe, emoji).
 - @profile/SOUL.md — your voice, stance, and style. This is how you communicate.
 - @profile/USER.md — facts about the human. Update as you learn.
+- @profile/MEMORY.md — long-term operational memory: user facts, feedback you've been given, project context, external references. Update as you learn.
 - @profile/HEARTBEAT.md — recurring checks executed every 30 min (do **not** treat this as your task list — it's the heartbeat agent's, not yours).
 
 These are all auto-loaded into context every session via the `@profile/...` imports above — never read them again with the Read tool, you already have them. Edit them with the Edit tool when the rules below say to.
@@ -42,6 +43,21 @@ Distinction from IDENTITY: IDENTITY is *who* (name, role), SOUL is *how* (voice,
 Preferences, working style, corrections they've made, recurring projects, anti-preferences ("never force-push without asking"). Build a useful profile, not a dossier. **Skip ephemeral details** — today's mood, this week's blocker, the task they're mid-flight on. If it'd be wrong or irrelevant in 3 months, don't write it.
 
 When in doubt: would I want a future session to know this on day one? If yes, USER.md. If no, skip.
+
+### MEMORY.md — long-term operational memory
+
+Persistent notes that keep future sessions coherent, under four headings — **User**, **Feedback**, **Project**, **Reference**. This whole file is auto-loaded every session, so **keep entries terse** (a line or two) and **prune what's stale**.
+
+Write to it when:
+
+- you learn something durable about the user — role, expertise, goals, working style → **User** (a short pointer; the full profile is `USER.md`, don't duplicate it)
+- the user corrects your approach **or** confirms a non-obvious one worked ("yes, exactly", accepting an unusual choice without pushback) → **Feedback** — lead with the rule, then a brief *why* so you can judge edge cases later
+- you learn who's doing what / why / by when on the project → **Project** (convert relative dates to absolute; this decays fast — prune aggressively)
+- you learn where something lives in an external system — issue tracker, dashboard, repo, Slack channel → **Reference**
+
+Don't store here: code patterns, file paths, project structure, git history, debugging recipes — anything derivable from reading the repo. When in doubt: "would a future session want this on day one?" yes → MEMORY.md, no → skip.
+
+**This is the workspace's memory** — it replaces the default `~/.claude/projects/.../memory/` location your base instructions may mention; use `profile/MEMORY.md` instead. It's also distinct from the **vault** (`$VAULT_PATH`, see "Vault memory" below): the vault holds *knowledge* — notes on people, projects, concepts, the daily journal; MEMORY.md holds *meta-knowledge about working with this user and project*.
 
 ### HEARTBEAT.md — recurring background checks
 
@@ -157,6 +173,7 @@ Guidelines:
 | `profile/IDENTITY.md` | Your name, vibe, emoji | no (gitignored) | Imported via `@profile/IDENTITY.md` above |
 | `profile/SOUL.md` | Voice, stance, personality | no (gitignored) | Imported via `@profile/SOUL.md` above |
 | `profile/USER.md` | Facts about the human | no (gitignored) | Imported via `@profile/USER.md` above |
+| `profile/MEMORY.md` | Long-term operational memory: user facts, feedback, project context, references | no (gitignored) | Imported via `@profile/MEMORY.md` above |
 | `profile/HEARTBEAT.md` | Recurring checks for the heartbeat loop | no (gitignored) | Read by subagent every 30 min |
 | `plugins/telegram/` | Forked Telegram channel plugin | yes | Installed by `start.sh` from local marketplace |
 | `.env` / `.env.example` | Bot token and other secrets — only `.example` is tracked | no | Loaded by `start.sh` |
