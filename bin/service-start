@@ -1,16 +1,32 @@
 #!/usr/bin/env bash
 # Systemd launcher — starts the Claude Code tmux session and waits for it to exit
 # so systemd can track the lifetime and optionally restart.
+#
+# Doubles as an out-of-process watchdog for the Telegram poller. Two failure
+# modes, both leave the session up + systemd happy but nobody answering Telegram:
+#   1. the poller PROCESS dies (.telegram/bot.pid no longer alive)
+#   2. the poller process is alive but HUNG — grammy processes updates
+#      sequentially, so a stuck handler stalls getUpdates with no error. The
+#      plugin touches .telegram/poll-alive (epoch-ms) on every successful
+#      getUpdates round-trip; if that goes stale the poll loop has wedged.
+# On either, we kill the session and exit non-zero so systemd restarts everything.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SESSION="claudeclaw-$(basename "$REPO_ROOT")"
+STATE_DIR="$REPO_ROOT/.telegram"
+ENV_FILE="$REPO_ROOT/.env"
+WATCHDOG_LOG="$STATE_DIR/watchdog.log"
+
+mkdir -p "$STATE_DIR"
+log() { echo "$(date '+%Y-%m-%dT%H:%M:%S%z') service-start[$$]: $*" | tee -a "$WATCHDOG_LOG" >&2 || true; }
 
 # Kill any stale session so we start clean
 /usr/bin/tmux kill-session -t "$SESSION" 2>/dev/null || true
 
 # Start detached — start.sh will see $TMUX is set and skip its own tmux-wrap
 /usr/bin/tmux new-session -d -s "$SESSION" "$REPO_ROOT/start.sh"
+log "started session $SESSION"
 
 # Auto-accept the dev-channels confirmation prompt that claude shows on first
 # run or after an update. Without this the session hangs headlessly on boot.
@@ -25,7 +41,57 @@ SESSION="claudeclaw-$(basename "$REPO_ROOT")"
   done
 ) &
 
-# Wait until the session ends so systemd tracks us properly
+# Telegram poller is "expected" only if a bot token is configured.
+telegram_enabled() { [ -f "$ENV_FILE" ] && grep -q '^TELEGRAM_BOT_TOKEN=.' "$ENV_FILE"; }
+bot_alive() {
+  local pf="$STATE_DIR/bot.pid" pid
+  [ -f "$pf" ] || return 1
+  pid=$(cat "$pf" 2>/dev/null) || return 1
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+# Stale if the plugin hasn't recorded a successful getUpdates in POLL_STALE secs.
+# Absent file = older build without the heartbeat, or the poller hasn't completed
+# its first poll yet — don't penalise; bot_alive still covers a dead process.
+POLL_ALIVE="$STATE_DIR/poll-alive"
+POLL_STALE=180
+poll_fresh() {
+  [ -f "$POLL_ALIVE" ] || return 0
+  local mtime now
+  mtime=$(stat -c %Y "$POLL_ALIVE" 2>/dev/null || echo 0)
+  now=$(date +%s)
+  [ "$(( now - mtime ))" -lt "$POLL_STALE" ]
+}
+
+# Give the session time to come up (plugin install, first-run prompt, npm) and
+# tolerate brief gaps (e.g. the plugin reinstall start.sh does) by requiring a
+# few consecutive misses before acting.
+start_ts=$(date +%s)
+GRACE=180        # seconds before the bot check arms
+MAX_MISS=3       # consecutive 10s misses (~30s) before we restart
+
+miss=0
 while /usr/bin/tmux has-session -t "$SESSION" 2>/dev/null; do
-    sleep 10
+  sleep 10
+  if telegram_enabled && [ "$(( $(date +%s) - start_ts ))" -ge "$GRACE" ]; then
+    reason=""
+    if ! bot_alive; then
+      reason="poller process not alive"
+    elif ! poll_fresh; then
+      reason="poller hung — no successful getUpdates in >${POLL_STALE}s"
+    fi
+    if [ -z "$reason" ]; then
+      [ "$miss" -ne 0 ] && log "telegram poller recovered"
+      miss=0
+    else
+      miss=$((miss + 1))
+      log "telegram poller problem: $reason (miss $miss/$MAX_MISS)"
+      if [ "$miss" -ge "$MAX_MISS" ]; then
+        log "telegram poller unhealthy ($reason) — killing session $SESSION so systemd restarts it"
+        /usr/bin/tmux kill-session -t "$SESSION" 2>/dev/null || true
+        exit 1
+      fi
+    fi
+  fi
 done
+
+log "session $SESSION ended"
