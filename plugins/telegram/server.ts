@@ -89,25 +89,44 @@ if (!TOKEN) {
 const INBOX_DIR = join(STATE_DIR, 'inbox')
 const PID_FILE = join(STATE_DIR, 'bot.pid')
 
-// Telegram allows exactly one getUpdates consumer per token. If a previous
-// session crashed (SIGKILL, terminal closed) its server.ts grandchild can
-// survive as an orphan and hold the slot forever, so every new session sees
-// 409 Conflict. Kill any stale holder before we start polling.
+// Cooperative poller election: only kill a holder that is genuinely dead.
+//
+// The main Claude Code session and every heartbeat/background subagent it
+// spawns all load this same MCP plugin, so multiple server.ts processes run
+// concurrently. Previously, each new process unconditionally killed whatever
+// was in bot.pid — fine for orphan cleanup, but it also killed the main
+// session's live poller every time a subagent started. When the subagent
+// finished its job and exited, its server.ts removed bot.pid, which caused
+// the service-start watchdog to detect a dead poller and kill the tmux
+// session, triggering an endless restart loop (introduced 2026-05-12 when
+// the watchdog was added in fix/telegram-poller-resilience).
+//
+// Fix: if the existing holder is alive, this is a secondary instance
+// (subagent). Defer to the live primary — serve MCP tools without polling.
+// Only replace a holder whose process is actually dead (orphan cleanup).
 mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 })
+let isPoller = true
 try {
-  const stale = parseInt(readFileSync(PID_FILE, 'utf8'), 10)
-  if (stale > 1 && stale !== process.pid) {
-    process.kill(stale, 0)
-    log(`replacing stale poller pid=${stale}`)
-    process.kill(stale, 'SIGTERM')
+  const existing = parseInt(readFileSync(PID_FILE, 'utf8'), 10)
+  if (existing > 1 && existing !== process.pid) {
+    try {
+      process.kill(existing, 0) // throws if the process is dead
+      // Primary poller is alive — run as secondary (MCP tools only, no polling).
+      log(`secondary instance — primary poller pid=${existing} is alive, skipping poll`)
+      isPoller = false
+    } catch {
+      // Process is dead — take over as the new primary poller.
+      log(`replacing stale poller pid=${existing}`)
+    }
   }
 } catch {}
-writeFileSync(PID_FILE, String(process.pid))
 
-// Evict any external stale long-poll (e.g. a session on another machine)
-// by making a zero-timeout getUpdates call. This forces Telegram to drop
-// any in-flight long-poll connection before we start our own, preventing 409.
-if (process.env.TELEGRAM_BOT_TOKEN) {
+if (isPoller) {
+  writeFileSync(PID_FILE, String(process.pid))
+}
+
+// Evict any external stale long-poll only when becoming the primary poller.
+if (isPoller && process.env.TELEGRAM_BOT_TOKEN) {
   try {
     await fetch(
       `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getUpdates?timeout=0&limit=1`,
@@ -1449,7 +1468,9 @@ bot.catch(err => {
 // returned, and polling stopped permanently while the process stayed alive
 // (MCP stdin keeps it running). Outbound tools kept working but the bot was
 // deaf to inbound messages until a full restart.
-void (async () => {
+if (!isPoller) {
+  log(`secondary instance — MCP tools available, not polling (pid ${process.pid})`)
+} else void (async () => {
   log(`poll loop starting (pid ${process.pid})`)
   for (let attempt = 1; ; attempt++) {
     try {
