@@ -8,6 +8,14 @@ If you've used [OpenClaw](https://github.com/openclaw/openclaw) and liked the mo
 
 ![claudeclaw demo](assets/demo.gif)
 
+## Not affected by the June 15, 2026 Agent SDK pricing change
+
+Anthropic's [June 15 change](https://support.anthropic.com/) moves **programmatic usage** — the Claude Agent SDK and `claude -p` (headless/print mode) — onto a separate metered budget that draws on extra usage at API rates once a monthly credit is spent. Tools built on `claude -p` or the Agent SDK are affected by this.
+
+**claudeclaw is not.** It drives an **interactive Claude Code session** — the same session you'd run by typing `claude` in a terminal — not `claude -p` and not the Agent SDK. The heartbeat loop, Telegram bridge, and hooks all operate inside that one interactive session. Anthropic's announcement is explicit that **interactive usage of Claude Code stays on your normal subscription limits, unchanged.**
+
+In practical terms: if you're on Pro / Max / Team, claudeclaw keeps running off your existing subscription after June 15 with no API billing and no need to claim the separate Agent SDK credit. Nothing here changes for you.
+
 ## What you get
 
 - **Conversational onboarding.** First launch, the agent asks who you are, who *it* is, how it should communicate. No config files to hand-edit.
@@ -18,7 +26,7 @@ If you've used [OpenClaw](https://github.com/openclaw/openclaw) and liked the mo
 
 ## Requirements
 
-- [Claude Code](https://docs.anthropic.com/claude-code) v2.1.80 or later, logged in via claude.ai (Pro / Max / Team — not Console / API key)
+- [Claude Code](https://docs.anthropic.com/claude-code) v2.1.80 or later, logged in via claude.ai (Pro / Max / Team — not Console / API key). claudeclaw runs as an **interactive** session, so it stays on your subscription limits and is unaffected by the June 15, 2026 Agent SDK pricing change (see above).
 - Node.js 18+ and npm (for the Telegram plugin)
 - A Telegram account if you want the phone bridge
 
