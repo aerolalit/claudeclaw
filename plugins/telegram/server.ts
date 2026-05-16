@@ -20,7 +20,7 @@ import { Bot, GrammyError, InlineKeyboard, InputFile, type Context } from 'gramm
 import type { ReactionTypeEmoji } from 'grammy/types'
 import { randomBytes } from 'crypto'
 import { spawn } from 'child_process'
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, statSync, renameSync, realpathSync, chmodSync } from 'fs'
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, readdirSync, rmSync, statSync, renameSync, realpathSync, chmodSync } from 'fs'
 import { homedir } from 'os'
 import { join, extname, sep } from 'path'
 
@@ -29,6 +29,23 @@ const ACCESS_FILE = join(STATE_DIR, 'access.json')
 const APPROVED_DIR = join(STATE_DIR, 'approved')
 const ENV_FILE = join(STATE_DIR, '.env')
 const STREAM_SETTINGS_FILE = join(STATE_DIR, 'stream_settings.json')
+// Persistent log + liveness file. server.log survives restarts (the tmux pane
+// doesn't), so a deaf-bot incident leaves a trace. poll-alive holds the epoch-ms
+// of the last successful getUpdates round-trip — bin/service-start watches it to
+// detect a hung-but-alive poller and restart the instance.
+const SERVER_LOG = join(STATE_DIR, 'server.log')
+const POLL_ALIVE = join(STATE_DIR, 'poll-alive')
+const LOG_ROTATE_BYTES = 5 * 1024 * 1024
+function log(msg: string): void {
+  const line = `${new Date().toISOString()} [${process.pid}] ${msg}\n`
+  try {
+    try {
+      if (statSync(SERVER_LOG).size > LOG_ROTATE_BYTES) renameSync(SERVER_LOG, SERVER_LOG + '.1')
+    } catch {}
+    appendFileSync(SERVER_LOG, line)
+  } catch {}
+  process.stderr.write(line)
+}
 
 // Load ~/.claude/channels/telegram/.env into process.env. Real env wins.
 // Plugin-spawned servers don't get an env block — this is where the token lives.
@@ -40,6 +57,22 @@ try {
     if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2]
   }
 } catch {}
+
+// grammy's built-in long polling runs update handlers sequentially — it won't
+// call getUpdates again until the current handler resolves. A handler that hangs
+// (e.g. a black-holed media download) therefore deafens the bot until the process
+// restarts. This caps any single handler: after `ms`, the poll loop is released
+// and the in-flight work is left to finish (or fail) in the background.
+function withDeadline<T>(work: Promise<T>, ms: number, label: string): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const guard = new Promise<undefined>(resolve => {
+    timer = setTimeout(() => {
+      log(`handler '${label}' exceeded ${ms}ms — releasing poll loop; work continues in background`)
+      resolve(undefined)
+    }, ms)
+  })
+  return Promise.race([Promise.resolve(work).finally(() => clearTimeout(timer)), guard])
+}
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN
 const GROQ_API_KEY = process.env.GROQ_API_KEY
@@ -56,31 +89,50 @@ if (!TOKEN) {
 const INBOX_DIR = join(STATE_DIR, 'inbox')
 const PID_FILE = join(STATE_DIR, 'bot.pid')
 
-// Telegram allows exactly one getUpdates consumer per token. If a previous
-// session crashed (SIGKILL, terminal closed) its server.ts grandchild can
-// survive as an orphan and hold the slot forever, so every new session sees
-// 409 Conflict. Kill any stale holder before we start polling.
+// Cooperative poller election: only kill a holder that is genuinely dead.
+//
+// The main Claude Code session and every heartbeat/background subagent it
+// spawns all load this same MCP plugin, so multiple server.ts processes run
+// concurrently. Previously, each new process unconditionally killed whatever
+// was in bot.pid — fine for orphan cleanup, but it also killed the main
+// session's live poller every time a subagent started. When the subagent
+// finished its job and exited, its server.ts removed bot.pid, which caused
+// the service-start watchdog to detect a dead poller and kill the tmux
+// session, triggering an endless restart loop (introduced 2026-05-12 when
+// the watchdog was added in fix/telegram-poller-resilience).
+//
+// Fix: if the existing holder is alive, this is a secondary instance
+// (subagent). Defer to the live primary — serve MCP tools without polling.
+// Only replace a holder whose process is actually dead (orphan cleanup).
 mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 })
+let isPoller = true
 try {
-  const stale = parseInt(readFileSync(PID_FILE, 'utf8'), 10)
-  if (stale > 1 && stale !== process.pid) {
-    process.kill(stale, 0)
-    process.stderr.write(`telegram channel: replacing stale poller pid=${stale}\n`)
-    process.kill(stale, 'SIGTERM')
+  const existing = parseInt(readFileSync(PID_FILE, 'utf8'), 10)
+  if (existing > 1 && existing !== process.pid) {
+    try {
+      process.kill(existing, 0) // throws if the process is dead
+      // Primary poller is alive — run as secondary (MCP tools only, no polling).
+      log(`secondary instance — primary poller pid=${existing} is alive, skipping poll`)
+      isPoller = false
+    } catch {
+      // Process is dead — take over as the new primary poller.
+      log(`replacing stale poller pid=${existing}`)
+    }
   }
 } catch {}
-writeFileSync(PID_FILE, String(process.pid))
 
-// Evict any external stale long-poll (e.g. a session on another machine)
-// by making a zero-timeout getUpdates call. This forces Telegram to drop
-// any in-flight long-poll connection before we start our own, preventing 409.
-if (process.env.TELEGRAM_BOT_TOKEN) {
+if (isPoller) {
+  writeFileSync(PID_FILE, String(process.pid))
+}
+
+// Evict any external stale long-poll only when becoming the primary poller.
+if (isPoller && process.env.TELEGRAM_BOT_TOKEN) {
   try {
     await fetch(
       `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getUpdates?timeout=0&limit=1`,
       { signal: AbortSignal.timeout(5000) },
     )
-    process.stderr.write('telegram channel: evicted any stale long-poll\n')
+    log('evicted any stale long-poll')
   } catch {
     // Non-fatal — polling will surface any real errors.
   }
@@ -89,10 +141,10 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
 // Last-resort safety net — without these the process dies silently on any
 // unhandled promise rejection. With them it logs and keeps serving tools.
 process.on('unhandledRejection', err => {
-  process.stderr.write(`telegram channel: unhandled rejection: ${err}\n`)
+  log(`unhandled rejection: ${err instanceof Error ? err.stack ?? err.message : err}`)
 })
 process.on('uncaughtException', err => {
-  process.stderr.write(`telegram channel: uncaught exception: ${err}\n`)
+  log(`uncaught exception: ${err instanceof Error ? err.stack ?? err.message : err}`)
 })
 
 // Permission-reply spec from anthropics/claude-cli-internal
@@ -101,8 +153,27 @@ process.on('uncaughtException', err => {
 // Strict: no bare yes/no (conversational), no prefix/suffix chatter.
 const PERMISSION_REPLY_RE = /^\s*(y|yes|n|no)\s+([a-km-z]{5})\s*$/i
 
-const bot = new Bot(TOKEN)
+// timeoutSeconds caps EVERY API request, including the getUpdates long-poll.
+// grammy's default is 500s — far longer than the 30s long-poll, so a black-holed
+// connection would hang the poller for 8+ minutes before aborting. 45s gives the
+// 30s long-poll headroom while keeping a dead socket from wedging us for long.
+const bot = new Bot(TOKEN, { client: { timeoutSeconds: 45 } })
 let botUsername = ''
+
+// Liveness + visibility for the poll loop. grammy's built-in long polling
+// processes updates sequentially, so a stuck handler stalls getUpdates with no
+// error — invisible without this. Touch poll-alive on every successful round-trip
+// (bin/service-start watches its mtime) and log non-empty batches.
+bot.api.config.use(async (prev, method, payload, signal) => {
+  const res = await prev(method, payload, signal)
+  if (method === 'getUpdates' && (res as { ok?: boolean }).ok) {
+    try { writeFileSync(POLL_ALIVE, String(Date.now())) } catch {}
+    const result = (res as { result?: unknown }).result
+    const n = Array.isArray(result) ? result.length : 0
+    if (n > 0) log(`getUpdates: ${n} update(s)`)
+  }
+  return res
+})
 
 type PendingEntry = {
   senderId: string
@@ -182,7 +253,7 @@ function readAccessFile(): Access {
     try {
       renameSync(ACCESS_FILE, `${ACCESS_FILE}.corrupt-${Date.now()}`)
     } catch {}
-    process.stderr.write(`telegram channel: access.json is corrupt, moved aside. Starting fresh.\n`)
+    log(`access.json is corrupt, moved aside. Starting fresh.`)
     return defaultAccess()
   }
 }
@@ -388,7 +459,7 @@ function checkApprovals(): void {
     void bot.api.sendMessage(senderId, "Paired! Say hi to Claude.").then(
       () => rmSync(file, { force: true }),
       err => {
-        process.stderr.write(`telegram channel: failed to send approval confirm: ${err}\n`)
+        log(`failed to send approval confirm: ${err}`)
         // Remove anyway — don't loop on a broken send.
         rmSync(file, { force: true })
       },
@@ -515,7 +586,7 @@ function resolveAsk(
       },
     },
   }).catch(err => {
-    process.stderr.write(`telegram channel: failed to deliver ask answer: ${err}\n`)
+    log(`failed to deliver ask answer: ${err}`)
   })
 }
 
@@ -544,7 +615,7 @@ mcp.setNotificationHandler(
       .text('❌ Deny', `perm:deny:${request_id}`)
     for (const chat_id of access.allowFrom) {
       void bot.api.sendMessage(chat_id, text, { reply_markup: keyboard }).catch(e => {
-        process.stderr.write(`permission_request send to ${chat_id} failed: ${e}\n`)
+        log(`permission_request send to ${chat_id} failed: ${e}`)
       })
     }
   },
@@ -732,7 +803,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const file = await bot.api.getFile(file_id)
         if (!file.file_path) throw new Error('Telegram returned no file_path — file may have expired')
         const url = `https://api.telegram.org/file/bot${TOKEN}/${file.file_path}`
-        const res = await fetch(url)
+        const res = await fetch(url, { signal: AbortSignal.timeout(30000) })
         if (!res.ok) throw new Error(`download failed: HTTP ${res.status}`)
         const buf = Buffer.from(await res.arrayBuffer())
         // file_path is from Telegram (trusted), but strip to safe chars anyway
@@ -852,7 +923,7 @@ let shuttingDown = false
 function shutdown(): void {
   if (shuttingDown) return
   shuttingDown = true
-  process.stderr.write('telegram channel: shutting down\n')
+  log('shutting down')
   try {
     if (parseInt(readFileSync(PID_FILE, 'utf8'), 10) === process.pid) rmSync(PID_FILE)
   } catch {}
@@ -872,11 +943,12 @@ process.on('SIGHUP', shutdown)
 // reparenting (POSIX) or a dead stdin pipe and self-terminate.
 const bootPpid = process.ppid
 setInterval(() => {
-  const orphaned =
-    (process.platform !== 'win32' && process.ppid !== bootPpid) ||
-    process.stdin.destroyed ||
-    process.stdin.readableEnded
-  if (orphaned) shutdown()
+  const reparented = process.platform !== 'win32' && process.ppid !== bootPpid
+  const stdinGone = process.stdin.destroyed || process.stdin.readableEnded
+  if (reparented || stdinGone) {
+    log(`orphan watchdog: ${reparented ? `reparented (ppid ${bootPpid}→${process.ppid})` : 'stdin closed'} — shutting down`)
+    shutdown()
+  }
 }, 5000).unref()
 
 // Commands are DM-only. Responding in groups would: (1) leak pairing codes via
@@ -1118,7 +1190,7 @@ bot.on('message:photo', async ctx => {
   const caption = ctx.message.caption ?? '(photo)'
   // Defer download until after the gate approves — any user can send photos,
   // and we don't want to burn API quota or fill the inbox for dropped messages.
-  await handleInbound(ctx, caption, async () => {
+  await withDeadline(handleInbound(ctx, caption, async () => {
     // Largest size is last in the array.
     const photos = ctx.message.photo
     const best = photos[photos.length - 1]
@@ -1126,7 +1198,7 @@ bot.on('message:photo', async ctx => {
       const file = await ctx.api.getFile(best.file_id)
       if (!file.file_path) return undefined
       const url = `https://api.telegram.org/file/bot${TOKEN}/${file.file_path}`
-      const res = await fetch(url)
+      const res = await fetch(url, { signal: AbortSignal.timeout(20000) })
       const buf = Buffer.from(await res.arrayBuffer())
       const ext = file.file_path.split('.').pop() ?? 'jpg'
       const path = join(INBOX_DIR, `${Date.now()}-${best.file_unique_id}.${ext}`)
@@ -1134,10 +1206,10 @@ bot.on('message:photo', async ctx => {
       writeFileSync(path, buf)
       return path
     } catch (err) {
-      process.stderr.write(`telegram channel: photo download failed: ${err}\n`)
+      log(`photo download failed: ${err}`)
       return undefined
     }
-  })
+  }), 45000, 'photo')
 })
 
 bot.on('message:document', async ctx => {
@@ -1158,7 +1230,7 @@ async function transcribeGroq(file_id: string, mime: string): Promise<string | n
   try {
     const file = await bot.api.getFile(file_id)
     if (!file.file_path) return null
-    const audioRes = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${file.file_path}`)
+    const audioRes = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${file.file_path}`, { signal: AbortSignal.timeout(20000) })
     if (!audioRes.ok) return null
     const buf = Buffer.from(await audioRes.arrayBuffer())
     let ext = file.file_path.includes('.') ? file.file_path.split('.').pop()!.replace(/[^a-z0-9]/gi, '') : 'ogg'
@@ -1171,43 +1243,48 @@ async function transcribeGroq(file_id: string, mime: string): Promise<string | n
       method: 'POST',
       headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
       body: form,
+      signal: AbortSignal.timeout(30000),
     })
     if (!res.ok) {
-      process.stderr.write(`transcribeGroq: Groq API error ${res.status}\n`)
+      log(`transcribeGroq: Groq API error ${res.status}`)
       return null
     }
     const json = await res.json() as { text?: string }
     return json.text?.trim() || null
   } catch (err) {
-    process.stderr.write(`transcribeGroq: ${err}\n`)
+    log(`transcribeGroq: ${err}`)
     return null
   }
 }
 
 bot.on('message:voice', async ctx => {
-  const voice = ctx.message.voice
-  const transcript = await transcribeGroq(voice.file_id, voice.mime_type ?? 'audio/ogg')
-  const text = transcript ?? ctx.message.caption ?? '(voice message — transcription unavailable)'
-  await handleInbound(ctx, text, undefined, {
-    kind: 'voice',
-    file_id: voice.file_id,
-    size: voice.file_size,
-    mime: voice.mime_type,
-  })
+  await withDeadline((async () => {
+    const voice = ctx.message.voice
+    const transcript = await transcribeGroq(voice.file_id, voice.mime_type ?? 'audio/ogg')
+    const text = transcript ?? ctx.message.caption ?? '(voice message — transcription unavailable)'
+    await handleInbound(ctx, text, undefined, {
+      kind: 'voice',
+      file_id: voice.file_id,
+      size: voice.file_size,
+      mime: voice.mime_type,
+    })
+  })(), 45000, 'voice')
 })
 
 bot.on('message:audio', async ctx => {
-  const audio = ctx.message.audio
-  const name = safeName(audio.file_name)
-  const transcript = await transcribeGroq(audio.file_id, audio.mime_type ?? 'audio/mpeg')
-  const text = transcript ?? ctx.message.caption ?? `(audio: ${safeName(audio.title) ?? name ?? 'audio'} — transcription unavailable)`
-  await handleInbound(ctx, text, undefined, {
-    kind: 'audio',
-    file_id: audio.file_id,
-    size: audio.file_size,
-    mime: audio.mime_type,
-    name,
-  })
+  await withDeadline((async () => {
+    const audio = ctx.message.audio
+    const name = safeName(audio.file_name)
+    const transcript = await transcribeGroq(audio.file_id, audio.mime_type ?? 'audio/mpeg')
+    const text = transcript ?? ctx.message.caption ?? `(audio: ${safeName(audio.title) ?? name ?? 'audio'} — transcription unavailable)`
+    await handleInbound(ctx, text, undefined, {
+      kind: 'audio',
+      file_id: audio.file_id,
+      size: audio.file_size,
+      mime: audio.mime_type,
+      name,
+    })
+  })(), 45000, 'audio')
 })
 
 bot.on('message:video', async ctx => {
@@ -1278,6 +1355,8 @@ async function handleInbound(
   const from = ctx.from!
   const chat_id = String(ctx.chat!.id)
   const msgId = ctx.message?.message_id
+  const kind = attachment?.kind ?? (downloadImage ? 'photo' : 'text')
+  log(`inbound chat=${chat_id} from=${from.id} kind=${kind} len=${text.length}${attachment?.size != null ? ` bytes=${attachment.size}` : ''}`)
 
   // Ask-reply intercept: if this is a quote-reply to a question we sent via
   // the `ask` tool, resolve that ask instead of relaying as a normal message.
@@ -1374,14 +1453,14 @@ async function handleInbound(
       },
     },
   }).catch(err => {
-    process.stderr.write(`telegram channel: failed to deliver inbound to Claude: ${err}\n`)
+    log(`failed to deliver inbound to Claude: ${err}`)
   })
 }
 
 // Without this, any throw in a message handler stops polling permanently
 // (grammy's default error handler calls bot.stop() and rethrows).
 bot.catch(err => {
-  process.stderr.write(`telegram channel: handler error (polling continues): ${err.error}\n`)
+  log(`handler error (polling continues): ${err.error instanceof Error ? err.error.stack ?? err.error.message : err.error}`)
 })
 
 // Retry polling with backoff on any error. Previously only 409 was retried —
@@ -1389,14 +1468,17 @@ bot.catch(err => {
 // returned, and polling stopped permanently while the process stayed alive
 // (MCP stdin keeps it running). Outbound tools kept working but the bot was
 // deaf to inbound messages until a full restart.
-void (async () => {
+if (!isPoller) {
+  log(`secondary instance — MCP tools available, not polling (pid ${process.pid})`)
+} else void (async () => {
+  log(`poll loop starting (pid ${process.pid})`)
   for (let attempt = 1; ; attempt++) {
     try {
       await bot.start({
         onStart: info => {
           attempt = 0
           botUsername = info.username
-          process.stderr.write(`telegram channel: polling as @${info.username}\n`)
+          log(`polling as @${info.username}`)
           void bot.api.setMyCommands(
             [
               { command: 'start', description: 'Welcome and setup guide' },
@@ -1410,6 +1492,7 @@ void (async () => {
           ).catch(() => {})
         },
       })
+      log('poll loop exited cleanly (bot.stop called)')
       return // bot.stop() was called — clean exit from the loop
     } catch (err) {
       if (shuttingDown) return
@@ -1426,7 +1509,7 @@ void (async () => {
       const detail = is409
         ? `409 Conflict${attempt === 1 ? ' — another instance is polling (zombie session, or a second Claude Code running?)' : ''}`
         : `polling error: ${err}`
-      process.stderr.write(`telegram channel: ${detail}, retrying in ${delay / 1000}s\n`)
+      log(`${detail}, retrying in ${delay / 1000}s`)
       await new Promise(r => setTimeout(r, delay))
     }
   }
