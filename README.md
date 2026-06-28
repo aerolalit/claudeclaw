@@ -163,6 +163,8 @@ For boot-time autostart, add a systemd user service (Linux) or launchd plist (ma
 
 ## Managing scheduled tasks
 
+> **Platform:** Linux and macOS only. The scheduled task system uses `crontab`; Windows is not currently supported.
+
 View cron jobs: `crontab -l`. Add/remove: `crontab -e`. Results land in `.tasks/results.log` and are picked up by the session Monitor automatically. The Monitor is re-armed on every session start — no manual setup needed after adding a new cron entry.
 
 ## Gotchas
