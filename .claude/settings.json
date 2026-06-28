@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"TASK MONITOR BOOTSTRAP: Arm a persistent Monitor to watch the shared task results log. Call Monitor with: command=\\u0027tail -f $CLAUDE_PROJECT_DIR/.tasks/results.log\\u0027, description=\\u0027scheduled task results\\u0027, persistent=true. Do this AFTER finishing your normal reply to the user. When a Monitor notification arrives: if it ends with HEARTBEAT_OK or similar OK signal, note it silently; if it contains an alert or error, surface it in the session and optionally forward to Telegram via the reply MCP tool using chat_id from $CLAUDE_PROJECT_DIR/.telegram/last_chat.txt. Do not ask for confirmation -- just arm it. Skip if a task monitor is already running (check TaskList first).\"}}'\"
+            "command": "printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"TASK MONITOR BOOTSTRAP: Arm a persistent Monitor to watch the shared task results log. Call Monitor with: command=\\u0027tail -f $CLAUDE_PROJECT_DIR/.tasks/results.log\\u0027, description=\\u0027scheduled task results\\u0027, persistent=true. Do this AFTER finishing your normal reply to the user. When a Monitor notification arrives: if it ends with HEARTBEAT_OK or similar OK signal, note it silently; if it contains an alert or error, surface it in the session and optionally forward to Telegram via the reply MCP tool using chat_id from $CLAUDE_PROJECT_DIR/.telegram/last_chat.txt. Do not ask for confirmation -- just arm it. Skip if a task monitor is already running (check TaskList first).\"}}'"
           }
         ]
       }
