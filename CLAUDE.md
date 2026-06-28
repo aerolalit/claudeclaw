@@ -78,8 +78,11 @@ If the user asks you to do something recurring ("keep an eye on X", "check Y eve
    # Prevent duplicate instances (important if waiting for input)
    exec 9>"$LOCK"; flock -n 9 || exit 0
 
-   # Crash guard — writes ALERT to results.log on unexpected exit
-   trap 'echo "$(date -Iseconds) [$TASK] ALERT: script crashed (exit $?)" >> "$RESULTS"' ERR
+   set -euo pipefail
+
+   # Crash guard — fires on any non-zero exit; set -e ensures the script
+   # exits immediately on error so $EXIT_CODE captures the right code.
+   trap '[[ ${EXIT_CODE:=$?} -ne 0 ]] && echo "$(date -Iseconds) [$TASK] ALERT: script crashed (exit $EXIT_CODE)" >> "$RESULTS"' EXIT
 
    mkdir -p "$LOG_DIR"
    RUN_LOG="$LOG_DIR/$(date -Iseconds).log"
