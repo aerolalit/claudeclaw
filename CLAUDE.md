@@ -60,6 +60,8 @@ Don't store here: code patterns, file paths, project structure, git history, deb
 
 ## When to schedule a recurring task
 
+> **Platform:** crontab is Linux/macOS only. Windows is not currently supported for scheduled tasks.
+
 If the user asks you to do something recurring ("keep an eye on X", "check Y every so often", "remind me when Z changes", "be proactive about A"):
 
 1. **Do it once now** so the user gets an immediate answer.
