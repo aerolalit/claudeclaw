@@ -123,7 +123,8 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 # ... do work, discover something needs a decision ...
 
-ANSWER=$("$PROJECT_DIR/bin/task-ask" "$TASK" "Found 3 stale temp files. Delete them? [y/n]" 1800)
+CONTEXT=$(printf '{"files":["a.log","b.log","c.log"],"total_mb":450,"oldest_days":30}')
+ANSWER=$("$PROJECT_DIR/bin/task-ask" "$TASK" "Found stale temp files. Delete them?" 1800 "$CONTEXT")
 
 if [ "$ANSWER" = "y" ]; then
   rm -f stale_file_1 stale_file_2 stale_file_3
@@ -191,7 +192,12 @@ Also write the chat_id to `$CLAUDE_PROJECT_DIR/.telegram/last_chat.txt` when han
 Scheduled task results arrive as Monitor notifications (not Telegram messages). When a notification arrives on `.tasks/results.log`:
 
 - **`ALERT:`** — surface it to the user via Telegram `reply` (chat_id from `last_chat.txt`).
-- **`INPUT_NEEDED:`** — a task is blocked waiting for user input. Parse the task name (first `[bracket]`) and the question. Ask the user via Telegram `ask` tool. When the answer arrives, run `bin/task-reply <taskname> "answer"` — this unblocks the task instantly via FIFO. Don't forget to call task-reply before ending the turn.
+- **`INPUT_NEEDED:`** — a task is blocked waiting for user input. Do this:
+  1. Parse the task name from the first `[bracket]` in the log line.
+  2. Read `.tasks/input/<taskname>/context.json` — it has the full structured context (files, sizes, options, etc.) the task wrote before blocking. Use it to ask the user an *informed* question, not just relay the raw string.
+  3. Ask the user via Telegram `ask` tool (non-blocking — keep processing other events). Handle follow-ups if the user needs to clarify; the task stays blocked on the FIFO until you call task-reply.
+  4. Once you have a final answer, run `bin/task-reply <taskname> "answer"` — unblocks the task instantly.
+  5. `context.json` and the FIFO are cleaned up automatically by `bin/task-ask` after the reply.
 - **`OK` / anything else benign** — note silently, no action.
 
 ## Managing scheduled tasks
