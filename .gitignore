@@ -66,6 +66,12 @@ plugins/telegram/*
 !templates/
 !templates/**
 
+# --- Scheduled task scripts (runtime logs are gitignored) ---
+!.tasks/
+.tasks/*
+!.tasks/scripts/
+!.tasks/scripts/**
+
 # --- Documentation + assets (README GIFs, screenshots, etc.) ---
 !docs/
 !docs/**
