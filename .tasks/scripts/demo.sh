@@ -1,13 +1,14 @@
 #!/bin/bash
-# Demo task — proves the scheduled task system is operational.
-# Full output goes to a per-run log. results.log only gets alerts.
-
+# Description: Proves the scheduled task system is operational (demo only)
 TASK=demo
-LOG_DIR=/home/lalit/claudeclaw/.tasks/logs/$TASK
-RESULTS=/home/lalit/claudeclaw/.tasks/results.log
+PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+LOG_DIR="$PROJECT_DIR/.tasks/logs/$TASK"
+RESULTS="$PROJECT_DIR/.tasks/results.log"
 
 mkdir -p "$LOG_DIR"
 RUN_LOG="$LOG_DIR/$(date -Iseconds).log"
+
+trap 'echo "$(date -Iseconds) [$TASK] ALERT: script crashed (exit $?)" >> "$RESULTS"' ERR
 
 STATUS=OK
 DETAIL="scheduled task system is operational"
@@ -19,7 +20,8 @@ DETAIL="scheduled task system is operational"
   echo "detail: $DETAIL"
 } > "$RUN_LOG"
 
-# Only surface to the session monitor on ALERT
 if [ "$STATUS" = "ALERT" ]; then
   echo "$(date -Iseconds) [$TASK] ALERT: $DETAIL" >> "$RESULTS"
 fi
+
+"$PROJECT_DIR/bin/task-cleanup-logs"

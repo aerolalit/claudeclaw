@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test script for the FIFO-based user input flow with structured context.
+# Description: Tests the FIFO-based mid-run user input flow
 TASK=test-input
 PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 LOG_DIR="$PROJECT_DIR/.tasks/logs/$TASK"
@@ -7,6 +7,8 @@ RESULTS="$PROJECT_DIR/.tasks/results.log"
 LOCK="/tmp/claudeclaw-$TASK.lock"
 
 exec 9>"$LOCK"; flock -n 9 || { echo "already running"; exit 0; }
+
+trap 'echo "$(date -Iseconds) [$TASK] ALERT: script crashed (exit $?)" >> "$RESULTS"' ERR
 
 mkdir -p "$LOG_DIR"
 RUN_LOG="$LOG_DIR/$(date -Iseconds).log"
@@ -30,3 +32,5 @@ if [ -z "$ANSWER" ]; then
 else
   echo "$(date -Iseconds) [$TASK] OK: theme colour set to '$ANSWER'" >> "$RESULTS"
 fi
+
+"$PROJECT_DIR/bin/task-cleanup-logs"

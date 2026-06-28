@@ -1,0 +1,38 @@
+#!/bin/bash
+# bin/task-list — show all registered scheduled tasks with schedule and description.
+# Reads crontab for schedule, and each script's "# Description:" comment for info.
+
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPTS_DIR="$PROJECT_DIR/.tasks/scripts"
+
+if [ ! -d "$SCRIPTS_DIR" ] || [ -z "$(ls -A "$SCRIPTS_DIR" 2>/dev/null)" ]; then
+  echo "No task scripts found in $SCRIPTS_DIR"
+  exit 0
+fi
+
+printf "%-20s %-20s %-10s %s\n" "TASK" "SCHEDULE" "STATUS" "DESCRIPTION"
+printf "%-20s %-20s %-10s %s\n" "----" "--------" "------" "-----------"
+
+for script in "$SCRIPTS_DIR"/*.sh; do
+  [ -f "$script" ] || continue
+  task=$(basename "$script" .sh)
+
+  # Read description from script comment (line starting with # Description:)
+  desc=$(grep -m1 '^# Description:' "$script" 2>/dev/null | sed 's/^# Description: *//' || echo "(no description)")
+
+  # Find matching crontab schedule
+  schedule=$(crontab -l 2>/dev/null | grep -F "$script" | awk '{print $1" "$2" "$3" "$4" "$5}' | head -1)
+  [ -z "$schedule" ] && schedule="(not scheduled)"
+
+  # Check if blocked waiting for input
+  fifo="$PROJECT_DIR/.tasks/input/$task/input.fifo"
+  if [ -p "$fifo" ]; then
+    status="WAITING"
+  else
+    status="idle"
+  fi
+
+  printf "%-20s %-20s %-10s %s\n" "$task" "$schedule" "$status" "$desc"
+done

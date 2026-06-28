@@ -68,28 +68,45 @@ If the user asks you to do something recurring ("keep an eye on X", "check Y eve
 2. **Create a script** in `.tasks/scripts/<taskname>.sh`. Every task must follow this pattern:
    ```bash
    #!/bin/bash
+   # Description: one-line summary shown by bin/task-list
    TASK=taskname
-   LOG_DIR=/path/to/claudeclaw/.tasks/logs/$TASK
-   RESULTS=/path/to/claudeclaw/.tasks/results.log
+   PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+   LOG_DIR="$PROJECT_DIR/.tasks/logs/$TASK"
+   RESULTS="$PROJECT_DIR/.tasks/results.log"
+   LOCK="/tmp/claudeclaw-$TASK.lock"
+
+   # Prevent duplicate instances (important if waiting for input)
+   exec 9>"$LOCK"; flock -n 9 || exit 0
+
+   # Crash guard — writes ALERT to results.log on unexpected exit
+   trap 'echo "$(date -Iseconds) [$TASK] ALERT: script crashed (exit $?)" >> "$RESULTS"' ERR
 
    mkdir -p "$LOG_DIR"
    RUN_LOG="$LOG_DIR/$(date -Iseconds).log"
 
    # --- do the work ---
-   STATUS=OK   # or ALERT
+   STATUS=OK   # or ALERT or NOTIFY
    DETAIL="everything nominal"
 
-   # Write full details to the per-run log (never to results.log)
+   # Write full details to the per-run log (never directly to results.log)
    {
      echo "ts:     $(date -Iseconds)"
      echo "status: $STATUS"
      echo "detail: $DETAIL"
    } > "$RUN_LOG"
 
-   # Only surface to the session monitor if action is needed
+   # Surface to the session monitor only when needed:
+   #   ALERT  — user must act now
+   #   NOTIFY — informational ping (forwarded to Telegram, no alarm)
+   #   (silence) — routine OK, nothing to do
    if [ "$STATUS" = "ALERT" ]; then
      echo "$(date -Iseconds) [$TASK] ALERT: $DETAIL" >> "$RESULTS"
+   elif [ "$STATUS" = "NOTIFY" ]; then
+     echo "$(date -Iseconds) [$TASK] NOTIFY: $DETAIL" >> "$RESULTS"
    fi
+
+   # Prune old logs (keep last 50 runs)
+   "$PROJECT_DIR/bin/task-cleanup-logs"
    ```
    Make it executable: `chmod +x .tasks/scripts/<taskname>.sh`. Use absolute paths — cron does not expand `~`.
 3. **Add a crontab entry** pointing at the script:
@@ -192,21 +209,25 @@ Also write the chat_id to `$CLAUDE_PROJECT_DIR/.telegram/last_chat.txt` when han
 Scheduled task results arrive as Monitor notifications (not Telegram messages). When a notification arrives on `.tasks/results.log`:
 
 - **`ALERT:`** — surface it to the user via Telegram `reply` (chat_id from `last_chat.txt`).
+- **`NOTIFY:`** — informational ping (task completed, stats, non-urgent update). Forward to Telegram as a plain message, no alarm needed.
 - **`INPUT_NEEDED:`** — a task is blocked waiting for user input. Do this:
   1. Parse the task name from the first `[bracket]` in the log line.
   2. Read `.tasks/input/<taskname>/context.json` — it has the full structured context (files, sizes, options, etc.) the task wrote before blocking. Use it to ask the user an *informed* question, not just relay the raw string.
   3. Ask the user via Telegram `ask` tool (non-blocking — keep processing other events). Handle follow-ups if the user needs to clarify; the task stays blocked on the FIFO until you call task-reply.
   4. Once you have a final answer, run `bin/task-reply <taskname> "answer"` — unblocks the task instantly.
   5. `context.json` and the FIFO are cleaned up automatically by `bin/task-ask` after the reply.
+  6. After handling, scan for other pending tasks: `ls .tasks/input/*/input.fifo 2>/dev/null` — surface any others immediately.
 - **`OK` / anything else benign** — note silently, no action.
 
 ## Managing scheduled tasks
 
+- **View tasks:** `bin/task-list` — shows all scripts with their cron schedule, current status (idle / WAITING), and description.
 - **View/edit cron jobs:** `crontab -l` to list, `crontab -e` to add/remove.
 - **Task scripts:** `.tasks/scripts/` — one file per task, all executable.
 - **Per-run logs:** `.tasks/logs/<taskname>/` — timestamped log per run, full output.
-- **Session alert feed:** `.tasks/results.log` — only ALERT lines land here; silent tasks write nothing.
-- **Session Monitor:** `TaskList` to check status, `TaskStop <id>` to kill. SessionStart hook re-arms it on every new session.
+- **Session alert feed:** `.tasks/results.log` — ALERT, NOTIFY, and INPUT_NEEDED lines only; silent OK tasks write nothing.
+- **Session Monitor:** `TaskList` to check status, `TaskStop <id>` to kill. SessionStart hook re-arms it on every new session. After arming, scan for orphaned FIFOs: `ls .tasks/input/*/input.fifo 2>/dev/null` — if any exist, a task was blocked when the session died; read its `context.json` and surface the pending question to the user immediately.
+- **Log cleanup:** `bin/task-cleanup-logs [keep]` — prune old per-run logs, keeping the last N (default 50) per task. Call at the end of every task script.
 
 ## Asking the user questions
 
@@ -243,8 +264,10 @@ Guidelines:
 | `.tasks/logs/<task>/` | Timestamped per-run logs (full output) | no (gitignored) | Written by each task script |
 | `.tasks/results.log` | Session alert feed — ALERT + INPUT_NEEDED lines | no (gitignored) | Watched by session Monitor |
 | `.tasks/input/<task>/input.fifo` | FIFO for mid-run user input handoff | no (gitignored) | Created by `bin/task-ask`, consumed by `bin/task-reply` |
-| `bin/task-ask` | Task-side helper: writes INPUT_NEEDED, blocks on FIFO | yes | Called from task scripts |
+| `bin/task-ask` | Task-side helper: writes INPUT_NEEDED + context.json, blocks on FIFO | yes | Called from task scripts |
 | `bin/task-reply` | Session-side helper: writes answer to FIFO, unblocks task | yes | Called by main session on INPUT_NEEDED |
+| `bin/task-list` | Show all tasks with schedule, status, and description | yes | Run anytime |
+| `bin/task-cleanup-logs` | Prune old per-run logs (keep last N per task) | yes | Called at end of every task script |
 | `.telegram/` | Repo-local Telegram state (access.json, bot.pid) | no (gitignored) | Read by plugin and hooks via `TELEGRAM_STATE_DIR` |
 
 The `profile/` directory is gitignored so framework updates pulled via `git pull` never conflict with per-instance content. New `templates/*.md` files added in framework updates auto-materialize into `profile/` on next session start.
