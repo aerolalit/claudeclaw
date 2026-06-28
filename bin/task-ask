@@ -1,0 +1,33 @@
+#!/bin/bash
+# bin/task-ask — called from within a task script to request user input.
+# Writes the question to results.log, creates a FIFO, and blocks until
+# the main session replies via bin/task-reply (or times out).
+#
+# Usage:
+#   ANSWER=$(bin/task-ask <taskname> "question text" [timeout_seconds])
+#   Returns the user's answer on stdout, or empty string on timeout.
+#
+# The calling script should hold a flock to prevent a second cron instance
+# from spawning while this one is waiting. See .tasks/scripts/ for examples.
+
+set -euo pipefail
+
+TASK=${1:?Usage: task-ask <taskname> "question" [timeout_seconds]}
+QUESTION=${2:?Usage: task-ask <taskname> "question" [timeout_seconds]}
+TIMEOUT=${3:-3600}
+
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+RESULTS="$PROJECT_DIR/.tasks/results.log"
+FIFO_DIR="$PROJECT_DIR/.tasks/input/$TASK"
+FIFO="$FIFO_DIR/input.fifo"
+
+mkdir -p "$FIFO_DIR"
+rm -f "$FIFO"
+mkfifo "$FIFO"
+
+echo "$(date -Iseconds) [$TASK] INPUT_NEEDED: $QUESTION" >> "$RESULTS"
+
+ANSWER=$(timeout "$TIMEOUT" cat "$FIFO" 2>/dev/null || true)
+rm -f "$FIFO"
+
+echo "$ANSWER"
