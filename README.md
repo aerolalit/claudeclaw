@@ -1,6 +1,6 @@
 # claudeclaw
 
-A personality, heartbeat loop, and Telegram bridge for [Claude Code](https://docs.anthropic.com/claude-code) — bring your subscription, skip the API key.
+A personality, scheduled task system, and Telegram bridge for [Claude Code](https://docs.anthropic.com/claude-code) — bring your subscription, skip the API key.
 
 claudeclaw is a workspace template for people who already pay for Claude (Pro/Max/Team) and want their CLI to feel like an always-on co-worker: it knows who you are, talks the way you've trained it to, runs recurring background checks, and answers your phone over Telegram. All of it routed through your existing Claude Code session — no separate daemon, no extra LLM API key.
 
@@ -12,7 +12,7 @@ If you've used [OpenClaw](https://github.com/openclaw/openclaw) and liked the mo
 
 Anthropic's [June 15 change](https://support.anthropic.com/) moves **programmatic usage** — the Claude Agent SDK and `claude -p` (headless/print mode) — onto a separate metered budget that draws on extra usage at API rates once a monthly credit is spent. Tools built on `claude -p` or the Agent SDK are affected by this.
 
-**claudeclaw is not.** It drives an **interactive Claude Code session** — the same session you'd run by typing `claude` in a terminal — not `claude -p` and not the Agent SDK. The heartbeat loop, Telegram bridge, and hooks all operate inside that one interactive session. Anthropic's announcement is explicit that **interactive usage of Claude Code stays on your normal subscription limits, unchanged.**
+**claudeclaw is not.** It drives an **interactive Claude Code session** — the same session you'd run by typing `claude` in a terminal — not the Agent SDK. The Telegram bridge and hooks operate inside that one interactive session. Scheduled tasks use OS cron + `claude -p` (which does count toward the separate budget), but the main session itself stays on your subscription. Anthropic's announcement is explicit that **interactive usage of Claude Code stays on your normal subscription limits, unchanged.**
 
 In practical terms: if you're on Pro / Max / Team, claudeclaw keeps running off your existing subscription after June 15 with no API billing and no need to claim the separate Agent SDK credit. Nothing here changes for you.
 
@@ -20,7 +20,7 @@ In practical terms: if you're on Pro / Max / Team, claudeclaw keeps running off 
 
 - **Conversational onboarding.** First launch, the agent asks who you are, who *it* is, how it should communicate. No config files to hand-edit.
 - **Persistent identity across sessions.** `profile/IDENTITY.md`, `USER.md`, `SOUL.md` capture the agent, you, and the voice. Auto-loaded every session.
-- **Heartbeat loop.** Every 30 minutes a sub-agent reads `profile/HEARTBEAT.md` and runs whatever recurring checks live there — inbox triage, deploy status, AI news, calendar gaps. Replies `HEARTBEAT_OK` if nothing needs attention.
+- **Scheduled tasks.** Add any recurring check to the system crontab as a one-line `claude -p` entry. Results append to `.tasks/results.log`; the session watches that file via a persistent Monitor and surfaces alerts interactively so you can discuss them.
 - **Telegram bridge.** Talk to your workspace from your phone. The agent reacts 👀 on inbound, streams tool calls live as it works, and pushes the final reply with a notification. Telegram-flavoured Markdown is rendered automatically.
 - **Shippable as a template.** This same repo is both the published template AND your personal instance. Personal files live under `profile/` (gitignored); framework updates pull cleanly with no merge conflicts.
 
@@ -84,7 +84,6 @@ claudeclaw/
 │   ├── IDENTITY.md          ← who the agent is
 │   ├── SOUL.md              ← how the agent talks
 │   ├── USER.md              ← who you are
-│   └── HEARTBEAT.md         ← recurring checks for the heartbeat loop
 │
 ├── profile/                 ← GITIGNORED: live per-instance files (auto-copied from templates/)
 │
@@ -104,7 +103,7 @@ claudeclaw/
 ## How it works
 
 - **`SessionStart` hook (auto-copy):** copies any new templates from `templates/` into `profile/` if missing. Existing files aren't overwritten.
-- **`SessionStart` hook (heartbeat bootstrap):** injects context telling the agent to arm a 30-minute `loop` skill that delegates each tick to a sub-agent — keeping main context clean.
+- **`SessionStart` hook (task monitor bootstrap):** injects context telling the agent to arm a persistent `Monitor` on `.tasks/results.log` — results from OS cron jobs land in session context automatically.
 - **`UserPromptSubmit` hook:** on inbound Telegram messages, reacts 👀 and primes `.telegram/active.json`.
 - **`PreToolUse` / `PostToolUse` hooks:** lazily create a Telegram progress message on the first non-Telegram tool call and edit-stream subsequent tools into it.
 - **`PreToolUse` (scoped to `reply`):** transforms standard markdown into Telegram MarkdownV2 (escapes specials, converts `**bold**` and bullet markers correctly) so replies render cleanly.
@@ -125,7 +124,7 @@ git pull
 To re-run the interview:
 
 ```bash
-rm profile/IDENTITY.md profile/USER.md profile/SOUL.md profile/HEARTBEAT.md
+rm profile/IDENTITY.md profile/USER.md profile/SOUL.md
 cp templates/BOOTSTRAP.md profile/BOOTSTRAP.md
 ```
 
@@ -162,9 +161,11 @@ The dev-channels confirmation prompt fires every time `claude --dangerously-load
 
 For boot-time autostart, add a systemd user service (Linux) or launchd plist (macOS) that runs `tmux new-session -d -s claudeclaw 'claudeclaw'` on login.
 
-## Stopping the heartbeat
+## Managing scheduled tasks
 
-Tell the agent "stop the heartbeat" in any session — it cancels the cron job. The loop is session-only (in-memory cron); it dies when Claude Code exits regardless.
+> **Platform:** Linux and macOS only. The scheduled task system uses `crontab`; Windows is not currently supported.
+
+View cron jobs: `crontab -l`. Add/remove: `crontab -e`. Results land in `.tasks/results.log` and are picked up by the session Monitor automatically. The Monitor is re-armed on every session start — no manual setup needed after adding a new cron entry.
 
 ## Gotchas
 
@@ -304,4 +305,4 @@ The bundled Telegram plugin in `plugins/telegram/` is a fork of [`telegram@claud
 
 ## Credit
 
-The conceptual model — BOOTSTRAP / IDENTITY / SOUL / USER / HEARTBEAT, conversational onboarding, profile-as-prompt — is borrowed from [OpenClaw](https://github.com/openclaw/openclaw). claudeclaw is that pattern, on Claude Code.
+The conceptual model — BOOTSTRAP / IDENTITY / SOUL / USER, conversational onboarding, profile-as-prompt — is borrowed from [OpenClaw](https://github.com/openclaw/openclaw). claudeclaw is that pattern, on Claude Code.

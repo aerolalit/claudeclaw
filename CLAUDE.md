@@ -1,6 +1,6 @@
-# Claudeclaw — Heartbeat Workspace
+# Claudeclaw — Scheduled Task Workspace
 
-This folder runs a recurring heartbeat loop (configured in `.claude/settings.json`). Every 30 minutes a subagent reads `profile/HEARTBEAT.md` and executes whatever instructions it contains, replying `HEARTBEAT_OK` if nothing needs attention.
+This folder is a Claude Code workspace with a general-purpose scheduled task system. Recurring tasks run via OS cron, each appending results to `.tasks/results.log`. The main session watches that file via a persistent `Monitor` (armed on every session start), so results land in session context and can be discussed interactively.
 
 ## First-run bootstrap
 
@@ -8,9 +8,9 @@ If `profile/BOOTSTRAP.md` exists, **read it FIRST and run the interview conversa
 
 When the interview is complete:
 
-1. Update `profile/IDENTITY.md`, `profile/USER.md`, `profile/SOUL.md`, `profile/MEMORY.md` (and optionally `profile/HEARTBEAT.md`) with what you learned.
+1. Update `profile/IDENTITY.md`, `profile/USER.md`, `profile/SOUL.md`, `profile/MEMORY.md` with what you learned.
 2. Delete `profile/BOOTSTRAP.md` — its absence signals onboarding is done.
-3. Welcome the user to the workspace and tell them about the heartbeat loop.
+3. Welcome the user to the workspace and tell them about the scheduled task system.
 
 If `profile/BOOTSTRAP.md` does not exist, skip straight to normal operation.
 
@@ -20,7 +20,6 @@ If `profile/BOOTSTRAP.md` does not exist, skip straight to normal operation.
 - @profile/SOUL.md — your voice, stance, and style. This is how you communicate.
 - @profile/USER.md — facts about the human. Update as you learn.
 - @profile/MEMORY.md — long-term operational memory: user facts, feedback you've been given, project context, external references. Update as you learn.
-- @profile/HEARTBEAT.md — recurring checks executed every 30 min (do **not** treat this as your task list — it's the heartbeat agent's, not yours).
 
 These are all auto-loaded into context every session via the `@profile/...` imports above — never read them again with the Read tool, you already have them. Edit them with the Edit tool when the rules below say to.
 
@@ -59,35 +58,25 @@ Don't store here: code patterns, file paths, project structure, git history, deb
 
 **This is the workspace's memory** — it replaces the default `~/.claude/projects/.../memory/` location your base instructions may mention; use `profile/MEMORY.md` instead. It's also distinct from the **vault** (`$VAULT_PATH`, see "Vault memory" below): the vault holds *knowledge* — notes on people, projects, concepts, the daily journal; MEMORY.md holds *meta-knowledge about working with this user and project*.
 
-### HEARTBEAT.md — recurring background checks
+## When to schedule a recurring task
 
-See the next section. This is the only file the *heartbeat sub-agent* reads — it doesn't see CLAUDE.md or the others. So every entry must be self-contained.
+> **Platform:** crontab is Linux/macOS only. Windows is not currently supported for scheduled tasks.
 
-## When to add things to HEARTBEAT.md
+If the user asks you to do something recurring ("keep an eye on X", "check Y every so often", "remind me when Z changes", "be proactive about A"):
 
-If the user asks you to do something that:
+1. **Do it once now** so the user gets an immediate answer.
+2. **Add a crontab entry** with `claude -p` inline — no wrapper script needed:
+   ```
+   crontab -e
+   */30 * * * * /path/to/claude --project /path/to/claudeclaw -p "YOUR PROMPT. Output one line: OK or alert." >> /path/to/claudeclaw/.tasks/results.log 2>&1
+   ```
+   Use absolute paths — cron does not expand `~` or shell aliases. Find your `claude` binary with `which claude`.
+3. The session Monitor on `.tasks/results.log` will pick up each result automatically.
 
-- needs to be **checked frequently or on an interval** ("keep an eye on X", "check Y every so often", "remind me when Z changes"), or
-- is a **recurring background check** rather than a one-off task, or
-- is framed as **ongoing/proactive monitoring** ("be proactive about X", "watch for Y", "stay on top of Z", "let me know when…", "ping me if…", "monitor A"),
+Each cron prompt should be self-contained (fresh session, no prior context) and output a single line: status or alert. Tell the user what you scheduled and at what interval.
 
-then add it to `profile/HEARTBEAT.md` instead of doing it once. **Proactive ≠ one-shot.** If the user says "be proactive" about anything, that's a heartbeat entry — the heartbeat loop is the only mechanism that runs without them prompting. Doing it once now and forgetting it is the failure mode to avoid.
-
-Then run the check immediately yourself for the current tick (so the user gets an answer now), AND add it to `HEARTBEAT.md` so future ticks pick it up.
-
-Each entry should be:
-
-- one short bullet
-- self-contained (the heartbeat agent has no prior context)
-- specific about what counts as an alert vs. nothing-to-report (so the agent knows when to reply `HEARTBEAT_OK` vs. raise an alert)
-
-After adding, briefly tell the user what you added and that the next heartbeat tick will pick it up.
-
-## When NOT to add to HEARTBEAT.md
-
-- One-shot tasks ("do X now") — just do them.
-- Tasks needing the main session's context — heartbeat agents run isolated.
-- Anything sensitive (secrets, tokens) — `HEARTBEAT.md` is read every tick.
+**One-shot tasks** ("do X now") — just do them, no cron entry.
+**Sensitive data** — never put secrets or tokens in a crontab prompt.
 
 ## Vault memory
 
@@ -135,15 +124,15 @@ If you do want to capture something explicitly, use `bin/vault write` or `bin/va
 
 If the user message is a `<channel source="telegram" ...>` tag, the streaming UX is handled automatically by hooks. The `UserPromptSubmit` hook reacts 👀 and primes `.telegram/active.json`. The `PreToolUse`/`PostToolUse` hooks lazily create a progress message on the first non-Telegram tool call and edit-stream subsequent tools into it. The `Stop` hook deletes the progress message at turn end. You don't need to write `active.json` yourself.
 
-Also write the chat_id to `$CLAUDE_PROJECT_DIR/.telegram/last_chat.txt` when handling any Telegram message — heartbeat alerts read this file later.
+Also write the chat_id to `$CLAUDE_PROJECT_DIR/.telegram/last_chat.txt` when handling any Telegram message — scheduled task alerts read this file to know where to forward.
 
-Heartbeat ticks are NOT Telegram messages — they fire from the cron loop. The hook filters out heartbeat sub-agent tool calls automatically. However: if the heartbeat sub-agent returns ANYTHING other than `HEARTBEAT_OK`, forward the alert text to Telegram via the `reply` tool, using the chat_id from `last_chat.txt`. If the cache file doesn't exist, just surface the alert in the main session and skip Telegram.
+Scheduled task results arrive as Monitor notifications (not Telegram messages). When a notification arrives on `.tasks/results.log`: if it looks like an alert or error, forward it to Telegram via the `reply` tool using the chat_id from `last_chat.txt`.
 
-**Always spawn the heartbeat agent with `run_in_background: true`** so the main session stays responsive to Telegram messages while the check runs. When the background agent completes and returns something other than `HEARTBEAT_OK`, forward the alert to Telegram then.
+## Managing scheduled tasks
 
-## Manually inspecting / cancelling the loop
-
-The active cron job ID is shown when the loop is armed; ask to "stop the heartbeat" or "show heartbeat status" to manage it.
+- **View/edit cron jobs:** `crontab -l` to list, `crontab -e` to add/remove.
+- **Results log:** `.tasks/results.log` — all task outputs land here.
+- **Session Monitor:** `TaskList` to check status, `TaskStop <id>` to kill. SessionStart hook re-arms it on every new session.
 
 ## Asking the user questions
 
@@ -158,7 +147,7 @@ Guidelines:
 - **End your turn after calling `ask`.** Don't busy-wait. The next inbound notification wakes you.
 - **Default timeout is 1h.** If you don't get an answer, the channel notification arrives with `ask_answer_kind: timeout` and empty content — abandon or ask again.
 - **Don't use `ask` for terminal-only sessions** (no active Telegram chat). Fall back to `AskUserQuestion` there.
-- **Don't use `ask` from heartbeat sub-agents.** They run isolated and won't see the answer. If a heartbeat needs user input, surface the question via the main session.
+- **Don't use `ask` from scheduled task sub-agents.** They run isolated and won't see the answer. If a task needs user input, surface the question via the main session.
 
 ## File map (quick reference)
 
@@ -174,7 +163,6 @@ Guidelines:
 | `profile/SOUL.md` | Voice, stance, personality | no (gitignored) | Imported via `@profile/SOUL.md` above |
 | `profile/USER.md` | Facts about the human | no (gitignored) | Imported via `@profile/USER.md` above |
 | `profile/MEMORY.md` | Long-term operational memory: user facts, feedback, project context, references | no (gitignored) | Imported via `@profile/MEMORY.md` above |
-| `profile/HEARTBEAT.md` | Recurring checks for the heartbeat loop | no (gitignored) | Read by subagent every 30 min |
 | `plugins/telegram/` | Forked Telegram channel plugin | yes | Installed by `start.sh` from local marketplace |
 | `.env` / `.env.example` | Bot token and other secrets — only `.example` is tracked | no | Loaded by `start.sh` |
 | `.telegram/` | Repo-local Telegram state (access.json, bot.pid) | no (gitignored) | Read by plugin and hooks via `TELEGRAM_STATE_DIR` |
