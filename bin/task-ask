@@ -1,0 +1,50 @@
+#!/bin/bash
+# bin/task-ask — called from within a task script to request user input.
+# Writes INPUT_NEEDED to results.log, a context.json for the main session,
+# creates a FIFO, and blocks until bin/task-reply is called (or timeout).
+#
+# Usage:
+#   ANSWER=$(bin/task-ask <taskname> "question" [timeout_seconds] [context_json])
+#
+#   context_json: optional JSON string with structured context for the main session
+#     e.g. '{"files":["a.log","b.log"],"total_mb":450,"oldest_days":30}'
+#   Returns the user's answer on stdout, or empty string on timeout.
+#
+# The calling script should hold a flock to prevent a second cron instance
+# from spawning while this one is waiting. See .tasks/scripts/ for examples.
+
+set -euo pipefail
+
+TASK=${1:?Usage: task-ask <taskname> "question" [timeout_seconds] [context_json]}
+QUESTION=${2:?Usage: task-ask <taskname> "question" [timeout_seconds] [context_json]}
+TIMEOUT=${3:-3600}
+CONTEXT_JSON=${4:-"{}"}
+
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+RESULTS="$PROJECT_DIR/.tasks/results.log"
+FIFO_DIR="$PROJECT_DIR/.tasks/input/$TASK"
+FIFO="$FIFO_DIR/input.fifo"
+CONTEXT_FILE="$FIFO_DIR/context.json"
+
+mkdir -p "$FIFO_DIR"
+rm -f "$FIFO" "$CONTEXT_FILE"
+
+# Write structured context so the main session can ask intelligently
+cat > "$CONTEXT_FILE" <<EOF
+{
+  "task": "$TASK",
+  "question": $(echo "$QUESTION" | python3 -c "import json,sys; print(json.dumps(sys.stdin.read().rstrip()))"),
+  "context": $CONTEXT_JSON,
+  "asked_at": "$(date -Iseconds)",
+  "timeout_seconds": $TIMEOUT
+}
+EOF
+
+mkfifo "$FIFO"
+
+echo "$(date -Iseconds) [$TASK] INPUT_NEEDED: $QUESTION" >> "$RESULTS"
+
+ANSWER=$(timeout "$TIMEOUT" cat "$FIFO" 2>/dev/null || true)
+rm -f "$FIFO" "$CONTEXT_FILE"
+
+echo "$ANSWER"
