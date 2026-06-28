@@ -1,6 +1,6 @@
 # Claudeclaw — Scheduled Task Workspace
 
-This folder is a Claude Code workspace with a general-purpose scheduled task system. Recurring tasks run via OS cron, each appending results to `.tasks/results.log`. The main session watches that file via a persistent `Monitor` (armed on every session start), so results land in session context and can be discussed interactively.
+This folder is a Claude Code workspace with a general-purpose scheduled task system. Recurring tasks run via OS cron. Each task is a script in `.tasks/scripts/` that writes full output to a per-run log under `.tasks/logs/<task>/`. Only alerts and questions that need the user's attention are written to `.tasks/results.log`, which the main session watches via a persistent `Monitor` (armed on every session start).
 
 ## First-run bootstrap
 
@@ -65,18 +65,48 @@ Don't store here: code patterns, file paths, project structure, git history, deb
 If the user asks you to do something recurring ("keep an eye on X", "check Y every so often", "remind me when Z changes", "be proactive about A"):
 
 1. **Do it once now** so the user gets an immediate answer.
-2. **Add a crontab entry** with `claude -p` inline — no wrapper script needed:
-   ```
-   crontab -e
-   */30 * * * * /path/to/claude --project /path/to/claudeclaw -p "YOUR PROMPT. Output one line: OK or alert." >> /path/to/claudeclaw/.tasks/results.log 2>&1
-   ```
-   Use absolute paths — cron does not expand `~` or shell aliases. Find your `claude` binary with `which claude`.
-3. The session Monitor on `.tasks/results.log` will pick up each result automatically.
+2. **Create a script** in `.tasks/scripts/<taskname>.sh`. Every task must follow this pattern:
+   ```bash
+   #!/bin/bash
+   TASK=taskname
+   LOG_DIR=/path/to/claudeclaw/.tasks/logs/$TASK
+   RESULTS=/path/to/claudeclaw/.tasks/results.log
 
-Each cron prompt should be self-contained (fresh session, no prior context) and output a single line: status or alert. Tell the user what you scheduled and at what interval.
+   mkdir -p "$LOG_DIR"
+   RUN_LOG="$LOG_DIR/$(date -Iseconds).log"
+
+   # --- do the work ---
+   STATUS=OK   # or ALERT
+   DETAIL="everything nominal"
+
+   # Write full details to the per-run log (never to results.log)
+   {
+     echo "ts:     $(date -Iseconds)"
+     echo "status: $STATUS"
+     echo "detail: $DETAIL"
+   } > "$RUN_LOG"
+
+   # Only surface to the session monitor if action is needed
+   if [ "$STATUS" = "ALERT" ]; then
+     echo "$(date -Iseconds) [$TASK] ALERT: $DETAIL" >> "$RESULTS"
+   fi
+   ```
+   Make it executable: `chmod +x .tasks/scripts/<taskname>.sh`. Use absolute paths — cron does not expand `~`.
+3. **Add a crontab entry** pointing at the script:
+   ```
+   */30 * * * * /path/to/claudeclaw/.tasks/scripts/<taskname>.sh
+   ```
+   Find your `claude` binary with `which claude` if the script needs to run `claude -p`.
+4. The session Monitor on `.tasks/results.log` picks up each ALERT automatically.
+
+**Rules:**
+- **Always use a script file** — no inline crontab one-liners (hard to read, impossible to version-control).
+- **results.log is for alerts only** — silent OK runs write nothing there.
+- **Full output goes to the per-run log** — `.tasks/logs/<task>/` keeps the history without polluting the session.
+- Each `claude -p` inside a script runs in a fresh, isolated session (no prior context). Keep the prompt self-contained.
 
 **One-shot tasks** ("do X now") — just do them, no cron entry.
-**Sensitive data** — never put secrets or tokens in a crontab prompt.
+**Sensitive data** — never put secrets or tokens in a crontab entry or script prompt.
 
 ## Vault memory
 
@@ -131,7 +161,9 @@ Scheduled task results arrive as Monitor notifications (not Telegram messages). 
 ## Managing scheduled tasks
 
 - **View/edit cron jobs:** `crontab -l` to list, `crontab -e` to add/remove.
-- **Results log:** `.tasks/results.log` — all task outputs land here.
+- **Task scripts:** `.tasks/scripts/` — one file per task, all executable.
+- **Per-run logs:** `.tasks/logs/<taskname>/` — timestamped log per run, full output.
+- **Session alert feed:** `.tasks/results.log` — only ALERT lines land here; silent tasks write nothing.
 - **Session Monitor:** `TaskList` to check status, `TaskStop <id>` to kill. SessionStart hook re-arms it on every new session.
 
 ## Asking the user questions
@@ -165,6 +197,9 @@ Guidelines:
 | `profile/MEMORY.md` | Long-term operational memory: user facts, feedback, project context, references | no (gitignored) | Imported via `@profile/MEMORY.md` above |
 | `plugins/telegram/` | Forked Telegram channel plugin | yes | Installed by `start.sh` from local marketplace |
 | `.env` / `.env.example` | Bot token and other secrets — only `.example` is tracked | no | Loaded by `start.sh` |
+| `.tasks/scripts/` | One shell script per scheduled task | yes | Executed by cron |
+| `.tasks/logs/<task>/` | Timestamped per-run logs (full output) | no (gitignored) | Written by each task script |
+| `.tasks/results.log` | Session alert feed — ALERT lines only | no (gitignored) | Watched by session Monitor |
 | `.telegram/` | Repo-local Telegram state (access.json, bot.pid) | no (gitignored) | Read by plugin and hooks via `TELEGRAM_STATE_DIR` |
 
 The `profile/` directory is gitignored so framework updates pulled via `git pull` never conflict with per-instance content. New `templates/*.md` files added in framework updates auto-materialize into `profile/` on next session start.
