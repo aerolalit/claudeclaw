@@ -9,7 +9,7 @@
     {
       "name": "telegram",
       "source": "./plugins/telegram",
-      "description": "Telegram channel for Claude Code — claudeclaw fork. Adds MarkdownV2 reply formatting and tool-call streaming to the official Telegram channel plugin."
+      "description": "Telegram channel for Claude Code — claudeclaw's messaging bridge with access control, MarkdownV2 reply formatting, and tool-call streaming."
     }
   ]
 }
