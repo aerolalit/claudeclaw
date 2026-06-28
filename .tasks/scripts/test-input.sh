@@ -1,5 +1,6 @@
 #!/bin/bash
 # Description: Tests the FIFO-based mid-run user input flow
+set -euo pipefail
 TASK=test-input
 PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 LOG_DIR="$PROJECT_DIR/.tasks/logs/$TASK"
@@ -8,7 +9,7 @@ LOCK="/tmp/claudeclaw-$TASK.lock"
 
 exec 9>"$LOCK"; flock -n 9 || { echo "already running"; exit 0; }
 
-trap 'echo "$(date -Iseconds) [$TASK] ALERT: script crashed (exit $?)" >> "$RESULTS"' ERR
+trap '[[ ${EXIT_CODE:=$?} -ne 0 ]] && echo "$(date -Iseconds) [$TASK] ALERT: script crashed (exit $EXIT_CODE)" >> "$RESULTS"' EXIT
 
 mkdir -p "$LOG_DIR"
 RUN_LOG="$LOG_DIR/$(date -Iseconds).log"
