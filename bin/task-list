@@ -23,7 +23,7 @@ for script in "$SCRIPTS_DIR"/*.sh; do
   desc=$(grep -m1 '^# Description:' "$script" 2>/dev/null | sed 's/^# Description: *//' || echo "(no description)")
 
   # Find matching crontab schedule
-  schedule=$(crontab -l 2>/dev/null | grep -F "$script" | awk '{print $1" "$2" "$3" "$4" "$5}' | head -1)
+  schedule=$(crontab -l 2>/dev/null | grep -F "$script" | awk '{print $1" "$2" "$3" "$4" "$5}' | head -1 || true)
   [ -z "$schedule" ] && schedule="(not scheduled)"
 
   # Check if blocked waiting for input
