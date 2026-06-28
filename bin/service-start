@@ -34,8 +34,11 @@ log "started session $SESSION"
   for _ in $(seq 1 60); do
     sleep 1
     pane=$(/usr/bin/tmux capture-pane -t "$SESSION" -p 2>/dev/null || true)
-    if echo "$pane" | grep -qiE "trust|dangerous|development channel|Do you want to allow"; then
-      /usr/bin/tmux send-keys -t "$SESSION" "y" Enter
+    if echo "$pane" | grep -qiE "trust|dangerous|development channel|local development|I am using this|Do you want to allow"; then
+      # Claude Code's dev-channels prompt is a numbered menu with the "proceed"
+      # option pre-selected (❯ 1. I am using this for local development) — just
+      # confirm with Enter. (Older y/n builds also default to proceed on Enter.)
+      /usr/bin/tmux send-keys -t "$SESSION" Enter
       break
     fi
   done
