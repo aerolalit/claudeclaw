@@ -108,6 +108,38 @@ If the user asks you to do something recurring ("keep an eye on X", "check Y eve
 **One-shot tasks** ("do X now") — just do them, no cron entry.
 **Sensitive data** — never put secrets or tokens in a crontab entry or script prompt.
 
+### Asking the user for input mid-run
+
+A task that needs user confirmation can pause and wait without exiting, using a FIFO handoff:
+
+**Task script side** — use `bin/task-ask`:
+```bash
+#!/bin/bash
+# Always flock so cron doesn't spawn a second instance while we're waiting
+LOCK=/tmp/claudeclaw-$TASK.lock
+exec 9>"$LOCK"; flock -n 9 || exit 0
+
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+# ... do work, discover something needs a decision ...
+
+ANSWER=$("$PROJECT_DIR/bin/task-ask" "$TASK" "Found 3 stale temp files. Delete them? [y/n]" 1800)
+
+if [ "$ANSWER" = "y" ]; then
+  rm -f stale_file_1 stale_file_2 stale_file_3
+  echo "$(date -Iseconds) [$TASK] deleted stale files" >> "$PROJECT_DIR/.tasks/logs/$TASK/$(date -Iseconds).log"
+fi
+```
+
+`bin/task-ask` writes an `INPUT_NEEDED` line to `results.log` (which wakes the main session's Monitor), creates a FIFO, and blocks until the answer arrives. Timeout defaults to 3600s.
+
+**Main session side** — when the Monitor fires with `INPUT_NEEDED`:
+1. Parse the task name and question from the log line.
+2. Ask the user (via Telegram `ask` tool if in Telegram, else `AskUserQuestion`).
+3. When the answer arrives, run: `bin/task-reply <taskname> "answer"` — this unblocks the waiting task instantly.
+
+The task resumes in the same process, same run, with the user's answer in `$ANSWER`.
+
 ## Vault memory
 
 Persistent notes / daily journal / wiki live under `$CLAUDE_PROJECT_DIR/vault/` (or wherever `VAULT_PATH` points if the user has overridden it). Use `bin/vault` for memory operations rather than reading/writing markdown files directly:
@@ -156,7 +188,11 @@ If the user message is a `<channel source="telegram" ...>` tag, the streaming UX
 
 Also write the chat_id to `$CLAUDE_PROJECT_DIR/.telegram/last_chat.txt` when handling any Telegram message — scheduled task alerts read this file to know where to forward.
 
-Scheduled task results arrive as Monitor notifications (not Telegram messages). When a notification arrives on `.tasks/results.log`: if it looks like an alert or error, forward it to Telegram via the `reply` tool using the chat_id from `last_chat.txt`.
+Scheduled task results arrive as Monitor notifications (not Telegram messages). When a notification arrives on `.tasks/results.log`:
+
+- **`ALERT:`** — surface it to the user via Telegram `reply` (chat_id from `last_chat.txt`).
+- **`INPUT_NEEDED:`** — a task is blocked waiting for user input. Parse the task name (first `[bracket]`) and the question. Ask the user via Telegram `ask` tool. When the answer arrives, run `bin/task-reply <taskname> "answer"` — this unblocks the task instantly via FIFO. Don't forget to call task-reply before ending the turn.
+- **`OK` / anything else benign** — note silently, no action.
 
 ## Managing scheduled tasks
 
@@ -199,7 +235,10 @@ Guidelines:
 | `.env` / `.env.example` | Bot token and other secrets — only `.example` is tracked | no | Loaded by `start.sh` |
 | `.tasks/scripts/` | One shell script per scheduled task | yes | Executed by cron |
 | `.tasks/logs/<task>/` | Timestamped per-run logs (full output) | no (gitignored) | Written by each task script |
-| `.tasks/results.log` | Session alert feed — ALERT lines only | no (gitignored) | Watched by session Monitor |
+| `.tasks/results.log` | Session alert feed — ALERT + INPUT_NEEDED lines | no (gitignored) | Watched by session Monitor |
+| `.tasks/input/<task>/input.fifo` | FIFO for mid-run user input handoff | no (gitignored) | Created by `bin/task-ask`, consumed by `bin/task-reply` |
+| `bin/task-ask` | Task-side helper: writes INPUT_NEEDED, blocks on FIFO | yes | Called from task scripts |
+| `bin/task-reply` | Session-side helper: writes answer to FIFO, unblocks task | yes | Called by main session on INPUT_NEEDED |
 | `.telegram/` | Repo-local Telegram state (access.json, bot.pid) | no (gitignored) | Read by plugin and hooks via `TELEGRAM_STATE_DIR` |
 
 The `profile/` directory is gitignored so framework updates pulled via `git pull` never conflict with per-instance content. New `templates/*.md` files added in framework updates auto-materialize into `profile/` on next session start.

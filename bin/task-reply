@@ -1,0 +1,24 @@
+#!/bin/bash
+# bin/task-reply — called by the main session to send an answer back to a
+# waiting task script. Unblocks the task-ask call instantly via FIFO.
+#
+# Usage:
+#   bin/task-reply <taskname> "answer text"
+#
+# Prints an error if no task is currently waiting for input.
+
+set -euo pipefail
+
+TASK=${1:?Usage: task-reply <taskname> "answer"}
+ANSWER=${2:?Usage: task-reply <taskname> "answer"}
+
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+FIFO="$PROJECT_DIR/.tasks/input/$TASK/input.fifo"
+
+if [ ! -p "$FIFO" ]; then
+  echo "ERROR: no task '$TASK' is waiting for input (FIFO not found: $FIFO)" >&2
+  exit 1
+fi
+
+echo "$ANSWER" > "$FIFO"
+echo "Replied to [$TASK]: $ANSWER"
