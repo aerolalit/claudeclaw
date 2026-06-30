@@ -789,4 +789,5 @@ _kill_stale_bot
 cd "$REPO_ROOT" && exec claude \
   --dangerously-load-development-channels "plugin:${PLUGIN_REF}" \
   --permission-mode bypassPermissions \
-  --setting-sources user,project,local
+  --setting-sources user,project,local \
+  --name claudeclaw

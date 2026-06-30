@@ -205,6 +205,8 @@ If you do want to capture something explicitly, use `bin/vault write` or `bin/va
 
 ## When responding to Telegram messages
 
+**The user lives in Telegram, not the terminal. ALWAYS deliver anything meant for the user through the Telegram `reply` tool (chat_id from `.telegram/last_chat.txt`) — answers, results, questions, status updates, files. Your transcript / terminal output never reaches their phone, so anything not sent via `reply` is invisible to them. Default to Telegram for every user-facing message unless you are certain the session is terminal-only.** (Standing instruction.)
+
 If the user message is a `<channel source="telegram" ...>` tag, the streaming UX is handled automatically by hooks. The `UserPromptSubmit` hook reacts 👀 and primes `.telegram/active.json`. The `PreToolUse`/`PostToolUse` hooks lazily create a progress message on the first non-Telegram tool call and edit-stream subsequent tools into it. The `Stop` hook deletes the progress message at turn end. You don't need to write `active.json` yourself.
 
 Also write the chat_id to `$CLAUDE_PROJECT_DIR/.telegram/last_chat.txt` when handling any Telegram message — scheduled task alerts read this file to know where to forward.
