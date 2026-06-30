@@ -71,6 +71,8 @@ plugins/telegram/*
 .tasks/*
 !.tasks/scripts/
 !.tasks/scripts/**
+# personal scripts, not for OSS
+.tasks/scripts/payslip-monthly.sh
 
 # --- Documentation + assets (README GIFs, screenshots, etc.) ---
 !docs/
